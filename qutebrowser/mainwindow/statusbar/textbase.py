@@ -110,7 +110,19 @@ class TextBase(QLabel):
         painter.end()
 
     def paintEvent(self, e):
-        """Override QLabel::paintEvent to draw elided text."""
+        """Override QLabel::paintEvent to draw elided text.
+
+        The segment padding is reserved as contents margins, so an empty label
+        is exactly as wide as its padding and a squeezed one is narrower: both
+        leave no contents rect and nothing to draw. Returning before any
+        QPainter is opened matters -- a painter left active by an exception
+        here crashes the browser when it is destroyed later.
+        """
+        rect = self.contentsRect()
+        if not rect.isValid():
+            e.accept()
+            return
+
         if self._elidemode == Qt.TextElideMode.ElideNone:
             text = self.text()
         else:
@@ -123,6 +135,4 @@ class TextBase(QLabel):
         else:
             e.accept()
             painter = QPainter(self)
-            rect = self.contentsRect()
-            qtutils.ensure_valid(rect)
             painter.drawText(rect, int(self.alignment()), self._elided_text)
