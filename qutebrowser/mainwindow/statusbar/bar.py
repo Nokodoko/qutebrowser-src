@@ -78,6 +78,32 @@ class ColorFlags:
         return strings
 
 
+_SEGMENT_QSS = """
+    SELECTOR QLabel {
+        qproperty-segmentBg: {% if conf.statusbar.segments %}{{ conf.colors.OPTION.bg }}{% else %}transparent{% endif %};
+    }
+
+    SELECTOR QLineEdit {
+        color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.fg }}{% else %}{{ conf.colors.OPTION.fg }}{% endif %};
+    }
+
+    SELECTOR {
+        background-color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.bg }}{% else %}{{ conf.colors.OPTION.bg }}{% endif %};
+    }
+"""
+
+
+def _segment_qss(selector, option):
+    """Get the background QSS for one mode color.
+
+    With statusbar.segments the mode background goes to the labels (painted
+    only behind their text, see TextBase), the bar itself takes
+    colors.statusbar.segments.bg, and the command line text (no longer on a
+    colored bar) takes colors.statusbar.segments.fg.
+    """
+    return _SEGMENT_QSS.replace('SELECTOR', selector).replace('OPTION', option)
+
+
 def _generate_stylesheet():
     flags = [
         ('private', 'statusbar.private'),
@@ -96,24 +122,18 @@ def _generate_stylesheet():
             font: {{ conf.fonts.statusbar }};
             color: {{ conf.colors.statusbar.normal.fg }};
         }
-
-        QWidget#StatusBar {
-            background-color: {{ conf.colors.statusbar.normal.bg }};
-        }
     """
+    qss += _segment_qss('QWidget#StatusBar', 'statusbar.normal')
     for flag, option in flags:
         qss += """
             QWidget#StatusBar[color_flags~="%s"],
-            QWidget#StatusBar[color_flags~="%s"] QLabel,
-            QWidget#StatusBar[color_flags~="%s"] QLineEdit {
+            QWidget#StatusBar[color_flags~="%s"] QLabel {
                 color: {{ conf.colors.%s }};
             }
-
-            QWidget#StatusBar[color_flags~="%s"] {
-                background-color: {{ conf.colors.%s }};
-            }
-        """ % (flag, flag, flag,  # noqa: S001
-               option + '.fg', flag, option + '.bg')
+        """ % (flag, flag, option + '.fg')  # noqa: S001
+        qss += _segment_qss(
+            'QWidget#StatusBar[color_flags~="%s"]' % flag,  # noqa: S001
+            option)
     return qss
 
 
@@ -346,6 +366,9 @@ class StatusBar(QWidget):
 
     def _set_mode_text(self, mode):
         """Set the mode text."""
+        if config.val.statusbar.segments:
+            self.txt.setText(mode.upper())
+            return
         if mode == 'passthrough':
             key_instance = config.key_instance
             all_bindings = key_instance.get_reverse_bindings_for('passthrough')

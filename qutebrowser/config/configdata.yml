@@ -2188,6 +2188,17 @@ statusbar.position:
   default: bottom
   desc: Position of the status bar.
 
+statusbar.segments:
+  type: Bool
+  default: false
+  desc: >-
+    Paint the mode background color only behind the text of each statusbar
+    widget, like a Vim statusline, instead of across the whole bar.
+
+    The rest of the bar uses `colors.statusbar.segments.bg`, and the mode text
+    is shown as the bare mode name (e.g. `INSERT`). The mode background colors
+    must be plain colors (no gradients) for the segments to be painted.
+
 statusbar.widgets:
   type:
     name: List
@@ -3170,6 +3181,20 @@ colors.statusbar.url.warn.fg:
   default: yellow
   type: QssColor
   desc: "Foreground color of the URL in the statusbar when there's a warning."
+
+colors.statusbar.segments.bg:
+  default: black
+  type: QssColor
+  desc: >-
+    Background color of the statusbar outside the widget text when
+    `statusbar.segments` is enabled.
+
+colors.statusbar.segments.fg:
+  default: white
+  type: QssColor
+  desc: >-
+    Foreground color of the command line text when `statusbar.segments` is
+    enabled.
 
 colors.tabs.bar.bg:
   default: '#555555'
