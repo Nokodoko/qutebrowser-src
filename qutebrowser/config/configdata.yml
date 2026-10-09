@@ -2346,6 +2346,16 @@ tabs.position:
   type: Position
   desc: Position of the tab bar.
 
+tabs.powerline:
+  default: false
+  type: Bool
+  desc: >-
+    Draw horizontal tabs powerline-style.
+
+    Each tab ends in a right-pointing chevron in its background color, drawn
+    over the next tab's background color (or `colors.tabs.bar.bg` after the
+    last tab). Vertical tabs are drawn as usual.
+
 tabs.select_on_remove:
   default: 'next'
   type: SelectOnRemove

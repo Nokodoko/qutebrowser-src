@@ -57,6 +57,31 @@ class TestTabWidget:
             assert first_size == widget.tabBar().tabSizeHint(i)
             assert first_size_min == widget.tabBar().minimumTabSizeHint(i)
 
+    @pytest.mark.parametrize('powerline', [True, False])
+    def test_powerline_chevron(self, widget, fake_web_tab, config_stub, qtbot,
+                               powerline):
+        """With tabs.powerline, a tab ends in a chevron over the next tab."""
+        config_stub.val.tabs.powerline = powerline
+        config_stub.val.tabs.indicator.width = 0
+        widget.addTab(fake_web_tab(), 'one')
+        widget.addTab(fake_web_tab(), 'two')
+        bar = widget.tabBar()
+        with qtbot.wait_exposed(widget):
+            widget.show()
+
+        this_bg = bar._tab_bg(0, bar.currentIndex())
+        next_bg = bar._tab_bg(1, bar.currentIndex())
+        assert this_bg != next_bg
+
+        image = bar.grab().toImage()
+        rect = bar.tabRect(0)
+        chevron = tabwidget.TabBarStyle.chevron_width(rect.height())
+        corner = image.pixelColor(rect.right() - 1, rect.top() + 1)
+        tip = image.pixelColor(rect.right() - chevron // 2,
+                               rect.top() + rect.height() // 2)
+        assert tip == this_bg
+        assert corner == (next_bg if powerline else this_bg)
+
     @pytest.fixture
     def paint_spy(self, monkeypatch):
         spy = Mock()

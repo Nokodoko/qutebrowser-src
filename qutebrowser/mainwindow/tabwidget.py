@@ -10,11 +10,11 @@ import dataclasses
 from typing import Any
 
 from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, Qt, QSize, QRect, QPoint,
-                          QTimer, QUrl)
+                          QPointF, QTimer, QUrl)
 from qutebrowser.qt.widgets import (QTabWidget, QTabBar, QSizePolicy, QProxyStyle,
                              QStyle, QStylePainter, QStyleOptionTab,
                              QCommonStyle)
-from qutebrowser.qt.gui import QIcon, QPalette, QColor
+from qutebrowser.qt.gui import QIcon, QPalette, QColor, QPainter, QPolygonF
 
 from qutebrowser.utils import qtutils, objreg, utils, usertypes, log
 from qutebrowser.config import config, stylesheet
@@ -450,9 +450,13 @@ class TabBar(QTabBar):
         if option.startswith('colors.tabs.'):
             self.update()
 
+        if option == 'tabs.powerline':
+            self.update()
+
         # Clear tab size caches when appropriate
         if option in ["tabs.indicator.padding",
                       "tabs.padding",
+                      "tabs.powerline",
                       "tabs.indicator.width",
                       "tabs.min_width",
                       "tabs.pinned.shrink",
@@ -471,6 +475,10 @@ class TabBar(QTabBar):
         if config.val.tabs.show == 'switching':
             self.show()
             self._auto_hide_timer.start()
+        if config.val.tabs.powerline:
+            # A tab's chevron is drawn over the next tab's color, so the tab
+            # before the old and new current tabs needs a repaint too.
+            self.update()
 
     @pyqtSlot()
     def maybe_hide(self):
@@ -617,6 +625,8 @@ class TabBar(QTabBar):
         if indicator_width != 0:
             padding_h += indicator_padding.left + indicator_padding.right
         height = self._minimum_tab_height()
+        if config.cache['tabs.powerline'] and not self.vertical:
+            padding_h += TabBarStyle.chevron_width(height)
         width = (text_width + icon_width +
                  padding_h + indicator_width)
         min_width = config.cache['tabs.min_width']
@@ -710,6 +720,27 @@ class TabBar(QTabBar):
             Qt.TextFlag.TextShowMnemonic,
         )
 
+    def _tab_color_setting(self, idx, selected):
+        """Get the colors.tabs.* setting prefix for the tab at idx."""
+        setting = 'colors.tabs'
+        if self._tab_pinned(idx):
+            setting += '.pinned'
+        if idx == selected:
+            setting += '.selected'
+        setting += '.odd' if (idx + 1) % 2 else '.even'
+        return setting
+
+    def _tab_bg(self, idx, selected):
+        """Get the background color of the tab at idx.
+
+        Past the last tab this is the tab bar's background. TabBarStyle draws
+        a powerline chevron over the next tab's color, passed as the
+        QPalette.ColorRole.Mid of the tab's style option.
+        """
+        if idx >= self.count():
+            return QColor(config.cache['colors.tabs.bar.bg'])
+        return config.cache[self._tab_color_setting(idx, selected) + '.bg']
+
     def paintEvent(self, event):
         """Override paintEvent to draw the tabs like we want to."""
         p = QStylePainter(self)
@@ -722,17 +753,13 @@ class TabBar(QTabBar):
             tab = QStyleOptionTab()
             self.initStyleOption(tab, idx)
 
-            setting = 'colors.tabs'
-            if self._tab_pinned(idx):
-                setting += '.pinned'
-            if idx == selected:
-                setting += '.selected'
-            setting += '.odd' if (idx + 1) % 2 else '.even'
-
+            setting = self._tab_color_setting(idx, selected)
             tab.palette.setColor(QPalette.ColorRole.Window,
                                  config.cache[setting + '.bg'])
             tab.palette.setColor(QPalette.ColorRole.WindowText,
                                  config.cache[setting + '.fg'])
+            tab.palette.setColor(QPalette.ColorRole.Mid,
+                                 self._tab_bg(idx + 1, selected))
 
             indicator_color = self.tab_indicator_color(idx)
             tab.palette.setColor(QPalette.ColorRole.Base, indicator_color)
@@ -800,6 +827,45 @@ class TabBarStyle(QProxyStyle):
     """
 
     ICON_PADDING = 4
+
+    @staticmethod
+    def chevron_width(height):
+        """Get the width of a powerline chevron for a tab of the given height."""
+        return height // 2
+
+    @staticmethod
+    def _powerline(opt):
+        """Whether to draw the given tab powerline-style."""
+        return config.cache['tabs.powerline'] and opt.shape in [
+            QTabBar.Shape.RoundedNorth, QTabBar.Shape.RoundedSouth,
+            QTabBar.Shape.TriangularNorth, QTabBar.Shape.TriangularSouth]
+
+    def _draw_chevron(self, opt, p):
+        """Draw the powerline chevron at the right edge of a tab.
+
+        The chevron points right, in the tab's own color, over the next
+        tab's color (QPalette.ColorRole.Mid, set by TabBar.paintEvent).
+
+        Args:
+            opt: QStyleOptionTab from drawControl.
+            p: QPainter from drawControl.
+        """
+        rect = opt.rect
+        width = self.chevron_width(rect.height())
+        base = rect.right() + 1 - width
+        p.fillRect(QRect(base, rect.top(), width, rect.height()),
+                   opt.palette.mid())
+        chevron = QPolygonF([
+            QPointF(base, rect.top()),
+            QPointF(rect.right() + 1, rect.top() + rect.height() / 2),
+            QPointF(base, rect.bottom() + 1),
+        ])
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(opt.palette.window())
+        p.drawPolygon(chevron)
+        p.restore()
 
     def __init__(self, style=None):
         # "useless" override as WORKAROUND for
@@ -870,6 +936,8 @@ class TabBarStyle(QProxyStyle):
             self.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, opt, p, widget)
         elif element == QStyle.ControlElement.CE_TabBarTabShape:
             p.fillRect(opt.rect, opt.palette.window())
+            if self._powerline(opt):
+                self._draw_chevron(opt, p)
             self._draw_indicator(layouts, opt, p)
             # We use QCommonStyle rather than self.baseStyle() here because we don't want
             # any sophisticated drawing.
@@ -965,6 +1033,8 @@ class TabBarStyle(QProxyStyle):
 
         text_rect.adjust(padding.left, padding.top, -padding.right,
                          -padding.bottom)
+        if self._powerline(opt):
+            text_rect.adjust(0, 0, -self.chevron_width(opt.rect.height()), 0)
 
         indicator_width = config.cache['tabs.indicator.width']
         if indicator_width == 0:
