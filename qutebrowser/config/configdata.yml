@@ -2174,6 +2174,19 @@ statusbar.show:
       - in-mode: Show the statusbar when in modes other than normal mode.
   desc: When to show the statusbar.
 
+statusbar.autohide:
+  default: 0
+  type:
+    name: Int
+    minval: 0
+    maxval: maxint
+  desc: >-
+    Hide the statusbar after this many milliseconds without a mode change.
+
+    Only applies with `statusbar.show` set to `always`. Entering or leaving any
+    mode shows the statusbar again, and it is never hidden in command, prompt
+    or yes/no mode. 0 disables it.
+
 statusbar.padding:
   type: Padding
   default:

@@ -181,6 +181,12 @@ class StatusBar(QWidget):
         self._color_flags = ColorFlags()
         self._color_flags.private = private
 
+        self._autohidden = False
+        self._autohide_timer = usertypes.Timer(self, 'statusbar-autohide')
+        self._autohide_timer.setSingleShot(True)
+        self._autohide_timer.timeout.connect(self._on_autohide_timeout)
+        self._restart_autohide()
+
         self._hbox = QHBoxLayout(self)
         self._set_hbox_padding()
         self._hbox.setSpacing(5)
@@ -249,6 +255,9 @@ class StatusBar(QWidget):
     @pyqtSlot(str)
     def _on_config_changed(self, option):
         if option == 'statusbar.show':
+            self.maybe_hide()
+        elif option == 'statusbar.autohide':
+            self._restart_autohide()
             self.maybe_hide()
         elif option == 'statusbar.padding':
             self._set_hbox_padding()
@@ -320,9 +329,41 @@ class StatusBar(QWidget):
                 else:
                     self.show()
         elif strategy == 'always':
-            self.show()
+            self.setVisible(not self._autohidden)
         else:
             raise utils.Unreachable
+
+    def _restart_autohide(self):
+        """Unhide the statusbar and restart the statusbar.autohide delay."""
+        self._autohidden = False
+        delay = config.val.statusbar.autohide
+        if delay:
+            self._autohide_timer.start(delay)
+        else:
+            self._autohide_timer.stop()
+
+    def _on_mode_change(self):
+        """Unhide an autohidden statusbar on any mode change."""
+        self._restart_autohide()
+        if config.val.statusbar.show == 'always':
+            self.maybe_hide()
+
+    @pyqtSlot()
+    def _on_autohide_timeout(self):
+        """Hide the statusbar after statusbar.autohide without a mode change.
+
+        A command line being typed or a prompt being answered keeps it shown;
+        the check is retried after another delay.
+        """
+        try:
+            mode = modeman.instance(self._win_id).mode
+        except modeman.UnavailableError:
+            return
+        if mode in [usertypes.KeyMode.command, *modeman.PROMPT_MODES]:
+            self._restart_autohide()
+            return
+        self._autohidden = True
+        self.maybe_hide()
 
     def _set_hbox_padding(self):
         padding = config.val.statusbar.padding
@@ -406,6 +447,7 @@ class StatusBar(QWidget):
         if config.val.statusbar.show == 'in-mode' and mode != usertypes.KeyMode.command:
             # Showing in command mode is handled via _show_cmd_widget()
             self.show()
+        self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
         if mode_manager.parsers[mode].passthrough:
@@ -424,6 +466,7 @@ class StatusBar(QWidget):
         if config.val.statusbar.show == 'in-mode' and old_mode != usertypes.KeyMode.command:
             # Hiding in command mode is handled via _hide_cmd_widget()
             self.hide()
+        self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
         if mode_manager.parsers[old_mode].passthrough:
