@@ -272,6 +272,10 @@ class MainWindow(QWidget):
         QTimer.singleShot(0, self._connect_overlay_signals)
         config.instance.changed.connect(self._on_config_changed)
 
+        default_mode = usertypes.KeyMode[config.val.input.default_mode]
+        if default_mode != usertypes.KeyMode.normal:
+            modeman.enter(self.win_id, default_mode, 'default mode')
+
         objects.qapp.new_window.emit(self)
         self._set_decoration(config.val.window.hide_decoration)
 

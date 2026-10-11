@@ -19,6 +19,10 @@ from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               tabindex, textbase, clock, searchmatch)
 
 
+# The segment label of a mode whose name is not its label.
+_SEGMENT_MODE_LABELS = {'passthrough': 'ENGAGE'}
+
+
 @dataclasses.dataclass
 class ColorFlags:
 
@@ -408,7 +412,7 @@ class StatusBar(QWidget):
     def _set_mode_text(self, mode):
         """Set the mode text."""
         if config.val.statusbar.segments:
-            self.txt.setText(mode.upper())
+            self.txt.setText(_SEGMENT_MODE_LABELS.get(mode, mode.upper()))
             return
         if mode == 'passthrough':
             key_instance = config.key_instance

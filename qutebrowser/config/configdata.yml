@@ -2015,6 +2015,20 @@ input.mode_override:
   supports_pattern: true
   desc: Mode to change to when focusing on a tab/URL changes.
 
+input.default_mode:
+  default: normal
+  type:
+    name: String
+    valid_values:
+      - normal
+      - insert
+      - passthrough
+  desc: >-
+    Mode a new window starts in.
+
+    Unlike `input.mode_override`, this only applies once per window: tab
+    switches and page loads leave the mode alone.
+
 ## keyhint
 
 keyhint.blacklist:
