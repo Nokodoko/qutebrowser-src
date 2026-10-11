@@ -244,6 +244,26 @@ class TabbedBrowser(QWidget):
         self.tab_deque = TabDeque()
         config.instance.changed.connect(self._on_config_changed)
         quitter.instance.shutting_down.connect(self.shutdown)
+        qapp = QApplication.instance()
+        assert isinstance(qapp, QApplication), qapp
+        qapp.focusChanged.connect(self._on_focus_changed)
+
+    def _on_focus_changed(self, _old, new):
+        """Switch to a background tab whose widget got the keyboard focus.
+
+        QtWebEngine focuses a tab's widget when a page raises it via
+        window.focus() or DevTools activates it. The widget is hidden, so the
+        focus is the only trace of the request.
+        """
+        if new is None or self.is_shutting_down:
+            return
+        current = self.widget.currentWidget()
+        for tab in self.widgets():
+            if tab is not current and tab.isAncestorOf(new):
+                log.webview.debug("Background tab {!r} got focus, switching "
+                                  "to it".format(tab))
+                self.widget.setCurrentWidget(tab)
+                return
 
     def _update_stack_size(self):
         newsize = config.instance.get('tabs.undo_stack_size')
