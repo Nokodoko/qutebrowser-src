@@ -114,6 +114,8 @@ class TabData:
                      Only used for QtWebKit.
         override_target: Override for open_target for fake clicks (like hints).
                          Only used for QtWebKit.
+        fake_click_shift: Whether a fake click in flight was sent with Shift.
+                          Only used for QtWebEngine.
         pinned: Flag to pin the tab.
         fullscreen: Whether the tab has a video shown fullscreen currently.
         netrc_used: Whether netrc authentication was performed.
@@ -126,6 +128,7 @@ class TabData:
     inspector: Optional['AbstractWebInspector'] = None
     open_target: usertypes.ClickTarget = usertypes.ClickTarget.normal
     override_target: usertypes.ClickTarget | None = None
+    fake_click_shift: bool = False
     pinned: bool = False
     fullscreen: bool = False
     netrc_used: bool = False

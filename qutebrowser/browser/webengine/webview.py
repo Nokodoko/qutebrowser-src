@@ -8,8 +8,9 @@ import mimetypes
 from collections.abc import Iterable
 
 from qutebrowser.qt import machinery
-from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl
+from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QUrl, Qt
 from qutebrowser.qt.gui import QPalette
+from qutebrowser.qt.widgets import QApplication
 from qutebrowser.qt.webenginewidgets import QWebEngineView
 from qutebrowser.qt.webenginecore import (
     QWebEnginePage, QWebEngineCertificateError, QWebEngineSettings,
@@ -34,6 +35,19 @@ _QB_FILESELECTION_MODES = {
     # (2) when a file input with "webkitdirectory" is used.
     QWebEnginePage.FileSelectionMode(2): shared.FileSelectionMode.folder,
 }
+
+
+def _browser_tab_target(*, background: bool, shift: bool) -> usertypes.ClickTarget:
+    """Get the click target for a WebBrowserTab window request.
+
+    QtWebEngine uses WebBrowserTab for a middle-click / Ctrl-click with Shift,
+    but also for target=_blank links and window.open(). Only the Shift gesture
+    inverts tabs.background; a tab the page opens itself comes to the
+    foreground.
+    """
+    if background or not shift:
+        return usertypes.ClickTarget.tab
+    return usertypes.ClickTarget.tab_bg
 
 
 class WebEngineView(QWebEngineView):
@@ -107,12 +121,13 @@ class WebEngineView(QWebEngineView):
                                 "that!".format(debug_type))
             target = usertypes.ClickTarget.tab
         elif wintype == QWebEnginePage.WebWindowType.WebBrowserTab:
-            # Middle-click / Ctrl-Click with Shift
-            # FIXME:qtwebengine this also affects target=_blank links...
-            if background:
-                target = usertypes.ClickTarget.tab
-            else:
-                target = usertypes.ClickTarget.tab_bg
+            # Middle-click / Ctrl-Click with Shift, target=_blank links and
+            # window.open(). A fake click's Shift is not a keyboard modifier,
+            # so webelem records it on the tab data.
+            shift = (self._tabdata.fake_click_shift or bool(
+                QApplication.keyboardModifiers() &
+                Qt.KeyboardModifier.ShiftModifier))
+            target = _browser_tab_target(background=background, shift=shift)
         elif wintype == QWebEnginePage.WebWindowType.WebBrowserBackgroundTab:
             # Middle-click / Ctrl-Click
             if background:
