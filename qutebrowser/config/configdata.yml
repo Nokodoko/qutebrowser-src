@@ -2436,6 +2436,25 @@ tabs.tiling.border:
     moving focus never reflows page content. A lone tile (monocle, or a
     single tab on the viewed tags) and a fullscreen tab have no border.
 
+tabs.tiling.max_per_tag:
+  default: 5
+  type:
+    name: Int
+    minval: 0
+  desc: >-
+    Hard limit of browser tabs per tag, zellij style (a tag is a zellij tab,
+    its browser tabs are the panes). `:tag` refuses a full tag; a new tab
+    opened while the viewed tag is full goes to the next tag with room and
+    the view follows it. 0 disables the limit.
+
+tabs.tiling.zellij_bar:
+  default: true
+  type: Bool
+  desc: >-
+    Draw a zellij-style tab bar (one ribbon per tag, with its name) over the
+    right end of the browser tab bar. It takes no extra vertical space; a
+    click on a ribbon views that tag. Rename tags with `:tag-rename`.
+
 tabs.select_on_remove:
   default: 'next'
   type: SelectOnRemove
@@ -3351,6 +3370,26 @@ colors.tabs.tiling.border.unfocused:
   type: QtColor
   desc: Border color of the unfocused tiled tabs (`tabs.tiling.border`).
 
+colors.tabs.tiling.ribbon.selected.bg:
+  default: '#00d4d4'
+  type: QtColor
+  desc: Background of the viewed tag's ribbon in the zellij bar (`tabs.tiling.zellij_bar`).
+
+colors.tabs.tiling.ribbon.selected.fg:
+  default: '#101010'
+  type: QtColor
+  desc: Text color of the viewed tag's ribbon in the zellij bar.
+
+colors.tabs.tiling.ribbon.unselected.bg:
+  default: '#ffffff'
+  type: QtColor
+  desc: Background of the other ribbons in the zellij bar.
+
+colors.tabs.tiling.ribbon.unselected.fg:
+  default: '#101010'
+  type: QtColor
+  desc: Text color of the other ribbons in the zellij bar.
+
 colors.tabs.selected.even.fg:
   default: white
   type: QtColor
@@ -4134,6 +4173,7 @@ bindings.default:
       i: tile-nmaster +1
       d: tile-nmaster -1
       T: mode-enter bitwise
+      r: cmd-set-text --space :tag-rename
       <Escape>: mode-leave
     bitwise:
       '1': tag-toggle-view 1

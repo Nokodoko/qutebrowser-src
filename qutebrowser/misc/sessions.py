@@ -287,6 +287,9 @@ class SessionManager(QObject):
             win_data['tabs'] = []
             if tabbed_browser.is_private:
                 win_data['private'] = True
+            names = tabbed_browser.widget.tiles.names
+            if names:
+                win_data['tag_names'] = {str(k): v for k, v in names.items()}
             for i, tab in enumerate(tabbed_browser.widgets()):
                 active = i == tabbed_browser.widget.currentIndex()
                 win_data['tabs'].append(self._save_tab(tab, active,
@@ -467,6 +470,8 @@ class SessionManager(QObject):
         tabbed_browser = objreg.get('tabbed-browser', scope='window',
                                     window=window.win_id)
         tab_to_focus = None
+        for tag, name in win.get('tag_names', {}).items():
+            tabbed_browser.widget.tiles.rename(int(tag), str(name))
         for i, tab in enumerate(win['tabs']):
             new_tab = tabbed_browser.tabopen(background=False)
             self._load_tab(new_tab, tab)

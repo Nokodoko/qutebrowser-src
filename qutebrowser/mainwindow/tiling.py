@@ -34,6 +34,90 @@ TAGMASK = (1 << NUM_TAGS) - 1
 LAYOUTS = ('tile', 'monocle')
 
 
+def default_name(tag: int) -> str:
+    """The name zellij gives an unnamed tab."""
+    return f"Tab #{tag}"
+
+
+def lowest_tag(mask: int) -> int:
+    """The lowest 1-based tag number set in a mask (0 for an empty mask)."""
+    mask &= TAGMASK
+    if not mask:
+        return 0
+    return (mask & -mask).bit_length()
+
+
+def count_on(tag: int, all_tags: Sequence[int]) -> int:
+    """How many of the given tag masks include ``tag``."""
+    bit = tag_mask(tag)
+    return sum(1 for t in all_tags if t & bit)
+
+
+def tags_over_limit(new: int, old: int, all_tags: Sequence[int],
+                    limit: int) -> list[int]:
+    """Tags a tab would join that already hold ``limit`` tabs.
+
+    Only tags the tab is not already on count; ``limit <= 0`` disables the
+    cap. ``all_tags`` must not include the tab being moved.
+    """
+    if limit <= 0:
+        return []
+    joining = (new & ~old) & TAGMASK
+    return [n for n in tag_numbers(joining)
+            if count_on(n, all_tags) >= limit]
+
+
+def next_tag_with_room(start: int, all_tags: Sequence[int],
+                       limit: int) -> int:
+    """The first tag from ``start`` upwards (wrapping) below the cap.
+
+    Returns ``start`` itself when the cap is off or every tag is full.
+    """
+    if limit <= 0:
+        return start
+    for i in range(NUM_TAGS):
+        tag = (start - 1 + i) % NUM_TAGS + 1
+        if count_on(tag, all_tags) < limit:
+            return tag
+    return start
+
+
+def stack_order(tabs: Sequence[tuple[object, int]]) -> list[tuple[object, int]]:
+    """Flatten every tab into one stack ordered by tag, then bar order.
+
+    This is the zellij view of the window: each tag is a zellij tab and the
+    browser tabs on it are its panes, so walking the stack past the last pane
+    of one tag lands on the first pane of the next. A tab on several tags
+    appears once per tag.
+    """
+    out: list[tuple[object, int]] = []
+    for tag in range(1, NUM_TAGS + 1):
+        bit = 1 << (tag - 1)
+        out.extend((tab, tag) for tab, mask in tabs if mask & bit)
+    return out
+
+
+def step_focus(tabs: Sequence[tuple[object, int]], current: object,
+               seltags: int, direction: int) -> tuple[object, int] | None:
+    """The (tab, tag) one step from ``current`` in the flat stack.
+
+    ``current`` is located at its lowest viewed tag so stepping stays inside
+    the viewed tag until its last pane, then wraps into the next tag. Returns
+    None when there is nothing to step to.
+    """
+    stack = stack_order(tabs)
+    if not stack:
+        return None
+    cur_mask = next((m for t, m in tabs if t is current), 0)
+    viewed = cur_mask & seltags
+    cur_tag = lowest_tag(viewed) if viewed else lowest_tag(cur_mask)
+    try:
+        idx = stack.index((current, cur_tag))
+    except ValueError:
+        idx = -1 if direction > 0 else 0
+    return stack[(idx + direction) % len(stack)]
+
+
 def tag_mask(tag: int) -> int:
     """Convert a 1-based tag number to its bitmask.
 
@@ -198,18 +282,65 @@ class TileArea(QWidget):
 
     arranged = pyqtSignal()
     view_changed = pyqtSignal(int)
+    #: A tag was renamed (tag number).
+    renamed = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.seltags = 1
         self._prev_seltags = 1
-        self.params = self._params_from_config()
+        #: pertag: one LayoutParams per tag, slot 0 for multi-tag views.
+        self._pertag: dict[int, LayoutParams] = {}
+        #: zellij tab names, by tag number; unnamed tags use default_name().
+        self.names: dict[int, str] = {}
         self._tabs: list[QWidget] = []
         self._current: QWidget | None = None
         self._frames: list[tuple[QRect, QRect, bool]] = []
         self._pending = False
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         config.instance.changed.connect(self._on_config_changed)
+
+    # ---- pertag: the layout state belongs to the viewed tag -------------
+
+    def curtag(self) -> int:
+        """dwm pertag's curtag: the viewed tag, 0 when several are viewed."""
+        viewed = tag_numbers(self.seltags)
+        return viewed[0] if len(viewed) == 1 else 0
+
+    @property
+    def params(self) -> LayoutParams:
+        slot = self.curtag()
+        if slot not in self._pertag:
+            self._pertag[slot] = self._params_from_config()
+        return self._pertag[slot]
+
+    @params.setter
+    def params(self, value: LayoutParams) -> None:
+        self._pertag[self.curtag()] = value
+
+    def name_of(self, tag: int) -> str:
+        """The zellij tab name of a tag."""
+        return self.names.get(tag) or default_name(tag)
+
+    def rename(self, tag: int, name: str) -> None:
+        """Name a tag; an empty name goes back to the default."""
+        name = name.strip()
+        if name:
+            self.names[tag] = name
+        else:
+            self.names.pop(tag, None)
+        self.renamed.emit(tag)
+
+    def limit(self) -> int:
+        """Max browser tabs per tag (0 = unlimited)."""
+        return config.val.tabs.tiling.max_per_tag
+
+    def tag_list(self) -> list[int]:
+        """All tag masks in bar order, the input to the pure helpers."""
+        return [tags_of(t) for t in self._tabs]
+
+    def count_on(self, tag: int) -> int:
+        return count_on(tag, self.tag_list())
 
     @staticmethod
     def _params_from_config() -> LayoutParams:
@@ -223,8 +354,12 @@ class TileArea(QWidget):
 
     @pyqtSlot(str)
     def _on_config_changed(self, option: str) -> None:
-        if option.startswith('tabs.tiling.'):
-            self.params = self._params_from_config()
+        if option in ('tabs.tiling.layout', 'tabs.tiling.mfact',
+                      'tabs.tiling.nmaster', 'tabs.tiling.gap',
+                      'tabs.tiling.border'):
+            # Config is the default for every tag; runtime changes made
+            # through the commands are per tag and kept.
+            self._pertag.clear()
             self.schedule()
         elif option.startswith('colors.tabs.tiling.'):
             self.update()

@@ -675,6 +675,10 @@ class TabbedBrowser(QWidget):
         if idx is None:
             idx = self._get_new_tab_idx(related)
         self.widget.insertTab(idx, tab, "")
+        # dwm: a new client gets the viewed tags; zellij: a full tab spills
+        # its new pane into the next tab. Session restore overrides this
+        # right after with the saved tags.
+        self.widget.place_new_tab(tab)
 
         if url is not None:
             tab.load_url(url)

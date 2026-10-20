@@ -332,8 +332,33 @@ class CommandDispatcher:
         """
         if count is not None:
             tag = str(count)
-        self._tabbed_browser.widget.set_tab_tags(
-            self._current_widget(), self._tag_mask(tag))
+        self._apply_tags(self._current_widget(), self._tag_mask(tag))
+
+    def _apply_tags(self, tab, mask: int) -> None:
+        """Set a tab's tags, reporting zellij tabs that are full."""
+        full = self._tabbed_browser.widget.set_tab_tags(tab, mask)
+        if full:
+            tiles = self._tiles()
+            names = ', '.join(f"{n} ({tiles.name_of(n)})" for n in full)
+            raise cmdutils.CommandError(
+                f"Tab {names} is full ({tiles.limit()} browser tabs max)")
+
+    @cmdutils.register(instance='command-dispatcher', scope='window',
+                       maxsplit=0)
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_rename(self, name: str = '', count: int | None = None) -> None:
+        """Name the viewed tag, like zellij's rename-tab.
+
+        Args:
+            name: The new name; empty restores `Tab #N`.
+            count: The tag number to rename instead of the viewed one.
+        """
+        tiles = self._tiles()
+        tag = count if count is not None else tiling.lowest_tag(tiles.seltags)
+        if not 1 <= tag <= tiling.NUM_TAGS:
+            raise cmdutils.CommandError(
+                f"Invalid tag {tag}, expected 1-{tiling.NUM_TAGS}")
+        tiles.rename(tag, name)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
     @cmdutils.argument('count', value=cmdutils.Value.count)
@@ -351,7 +376,7 @@ class CommandDispatcher:
         tab = self._current_widget()
         new = tab.data.tags ^ self._tag_mask(tag)
         if new:
-            self._tabbed_browser.widget.set_tab_tags(tab, new)
+            self._apply_tags(tab, new)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
     @cmdutils.argument('layout', choices=['tile', 'monocle', 'toggle'])
@@ -366,21 +391,29 @@ class CommandDispatcher:
     @cmdutils.register(instance='command-dispatcher', scope='window')
     @cmdutils.argument('direction', choices=['next', 'prev'])
     def tile_focus(self, direction: str = 'next') -> None:
-        """Focus the next/previous visible tab (dwm focusstack).
+        """Focus the next/previous tab in the one stack (zellij j/k).
 
-        Unlike `tab-next`, tabs on tags that are not viewed are skipped.
+        Every tag is a zellij tab and its browser tabs are the panes, in one
+        flat stack. Stepping past the last pane of the viewed tag moves on to
+        the first pane of the next tag and the view follows, so the browser
+        shifts into that zellij tab with the selected pane.
 
         Args:
             direction: `next` or `prev`.
         """
-        visible = self._tiles().visible_tabs()
-        if not visible:
-            return
-        current = self._current_widget()
+        tiles = self._tiles()
+        widget = self._tabbed_browser.widget
+        tabs = [(widget.widget(i), tiling.tags_of(widget.widget(i)))
+                for i in range(widget.count())]
         step = 1 if direction == 'next' else -1
-        idx = visible.index(current) if current in visible else -1
-        target = visible[(idx + step) % len(visible)]
-        self._tabbed_browser.widget.setCurrentWidget(target)
+        hit = tiling.step_focus(tabs, self._current_widget(), tiles.seltags,
+                                step)
+        if hit is None:
+            return
+        target, tag = hit
+        if not tiles.seltags & tiling.tag_mask(tag):
+            tiles.view(tiling.tag_mask(tag))
+        widget.setCurrentWidget(target)
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
     def tile_zoom(self) -> None:

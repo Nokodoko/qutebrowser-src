@@ -20,7 +20,7 @@ from qutebrowser.utils import qtutils, objreg, utils, usertypes, log
 from qutebrowser.config import config, stylesheet
 from qutebrowser.misc import objects, debugcachestats
 from qutebrowser.browser import browsertab
-from qutebrowser.mainwindow import tiling
+from qutebrowser.mainwindow import tiling, zellijbar
 
 
 class _TabProxy(QWidget):
@@ -78,6 +78,7 @@ class TabWidget(QTabWidget):
         self._stack_watcher = tiling.cover(stack, self.tiles)
         self.tiles.view_changed.connect(self._on_view_changed)
         self.tiles.arranged.connect(self._update_bar_visibility)
+        self.zellij_bar = zellijbar.ZellijBar(self.tiles, bar)
         self._init_config()
         config.instance.changed.connect(self._init_config)
 
@@ -114,6 +115,22 @@ class TabWidget(QTabWidget):
         idx = self.indexOf(widget)
         if idx != -1:
             self.setCurrentIndex(idx)
+
+    def setCurrentIndex(self, idx: int) -> None:  # noqa: N802
+        """Make the tab at ``idx`` current, viewing its tag if needed.
+
+        QTabBar refuses to select a hidden tab, and tabs off the viewed tags
+        are hidden in the bar. So first bring the tab's tag into view (dwm
+        follows focus to an off-view client the same way), re-show the bar
+        tabs for that view, then select.
+        """
+        tab = self.widget(idx)
+        if tab is not None and not self.tab_bar().isTabVisible(idx):
+            tags = tiling.tags_of(tab)
+            if not tiling.is_visible(tags, self.tiles.seltags):
+                self.tiles.view(tags & -tags)
+            self._update_bar_visibility()
+        super().setCurrentIndex(idx)
 
     def _wrap(self, page: QWidget) -> QWidget:
         """Move a new tab into the tile area and return its proxy page."""
@@ -160,14 +177,40 @@ class TabWidget(QTabWidget):
             if bar.isTabVisible(idx) != show:
                 bar.setTabVisible(idx, show)
 
-    def set_tab_tags(self, tab: QWidget, mask: int) -> None:
-        """Put a tab on the given tags and refocus if it left the view."""
+    def set_tab_tags(self, tab: QWidget, mask: int) -> list[int]:
+        """Put a tab on the given tags and refocus if it left the view.
+
+        Return:
+            The tags that refused the tab because they are full
+            (`tabs.tiling.max_per_tag`); the tab is left where it was then.
+        """
         mask &= tiling.TAGMASK
         if not mask:
-            return
+            return []
+        others = [tiling.tags_of(t) for t in self.tiles._tabs if t is not tab]
+        full = tiling.tags_over_limit(mask, tiling.tags_of(tab), others,
+                                      self.tiles.limit())
+        if full:
+            return full
         tab.data.tags = mask  # type: ignore[attr-defined]
         self.tiles.schedule()
         self._on_view_changed(self.tiles.seltags)
+        return []
+
+    def place_new_tab(self, tab: QWidget) -> None:
+        """Give a new tab the viewed tag, spilling to the next tag with room.
+
+        dwm gives a new client the monitor's tagset; zellij tabs cap their
+        panes, so a full tag hands the new browser tab to the next tag that
+        has room and the view follows it.
+        """
+        start = tiling.lowest_tag(self.tiles.seltags) or 1
+        others = [tiling.tags_of(t) for t in self.tiles._tabs if t is not tab]
+        target = tiling.next_tag_with_room(start, others, self.tiles.limit())
+        tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
+        if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
+            self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
+        self.tiles.schedule()
 
     @pyqtSlot(int)
     def _on_view_changed(self, seltags: int) -> None:
@@ -177,6 +220,9 @@ class TabWidget(QTabWidget):
             return
         visible = self.tiles.visible_tabs()
         if visible:
+            # The bar still hides the tabs of the new view until the next
+            # relayout, and a hidden bar tab cannot be selected.
+            self._update_bar_visibility()
             self.setCurrentWidget(visible[0])
         else:
             self.tiles.set_current(current)
