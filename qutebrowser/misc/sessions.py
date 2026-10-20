@@ -21,7 +21,7 @@ from qutebrowser.utils import (standarddir, objreg, qtutils, log, message,
 from qutebrowser.api import cmdutils
 from qutebrowser.config import config, configfiles
 from qutebrowser.completion.models import miscmodels
-from qutebrowser.mainwindow import mainwindow
+from qutebrowser.mainwindow import mainwindow, tiling
 from qutebrowser.qt import sip
 from qutebrowser.misc import objects, throttle
 
@@ -287,9 +287,12 @@ class SessionManager(QObject):
             win_data['tabs'] = []
             if tabbed_browser.is_private:
                 win_data['private'] = True
-            names = tabbed_browser.widget.tiles.names
-            if names:
-                win_data['tag_names'] = {str(k): v for k, v in names.items()}
+            tiles = tabbed_browser.widget.tiles
+            if tiles.names:
+                win_data['tag_names'] = {str(k): v
+                                         for k, v in tiles.names.items()}
+            if tiles.seltags != 1:
+                win_data['seltags'] = tiles.seltags
             for i, tab in enumerate(tabbed_browser.widgets()):
                 active = i == tabbed_browser.widget.currentIndex()
                 win_data['tabs'].append(self._save_tab(tab, active,
@@ -463,6 +466,14 @@ class SessionManager(QObject):
         except ValueError as e:
             raise SessionError(e)
 
+    @staticmethod
+    def _saved_tags(tab):
+        """The tag mask a saved tab lives on (tag 1 when none was saved)."""
+        for histentry in tab.get('history', []):
+            if 'tags' in histentry:
+                return int(histentry['tags'])
+        return 1
+
     def _load_window(self, win):
         """Turn yaml data into windows."""
         window = mainwindow.MainWindow(geometry=win['geometry'],
@@ -473,12 +484,19 @@ class SessionManager(QObject):
         for tag, name in win.get('tag_names', {}).items():
             tabbed_browser.widget.tiles.rename(int(tag), str(name))
         for i, tab in enumerate(win['tabs']):
-            new_tab = tabbed_browser.tabopen(background=False)
+            # Hand the saved tags straight to tabopen so the new-tab spill
+            # logic does not move a restored tab (and the view) elsewhere.
+            new_tab = tabbed_browser.tabopen(background=False,
+                                             tags=self._saved_tags(tab))
             self._load_tab(new_tab, tab)
             if tab.get('active', False):
                 tab_to_focus = i
             if new_tab.data.pinned:
                 new_tab.set_pinned(True)
+        tiles = tabbed_browser.widget.tiles
+        seltags = int(win.get('seltags', 1)) & tiling.TAGMASK or 1
+        if seltags != tiles.seltags:
+            tiles.view(seltags)
         if tab_to_focus is not None:
             tabbed_browser.widget.setCurrentIndex(tab_to_focus)
 

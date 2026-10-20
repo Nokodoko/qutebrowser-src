@@ -279,6 +279,21 @@ def fake_webview():
     return FakeWebView()
 
 
+class TestSavedTags:
+
+    """The tag mask handed to tabopen when a window is restored."""
+
+    def test_no_tags(self, sess_man):
+        assert sess_man._saved_tags({'history': [{'url': 'a'}]}) == 1
+
+    def test_no_history(self, sess_man):
+        assert sess_man._saved_tags({'history': []}) == 1
+
+    def test_tags_on_an_entry(self, sess_man):
+        data = {'history': [{'url': 'a'}, {'url': 'b', 'tags': 6}]}
+        assert sess_man._saved_tags(data) == 6
+
+
 @webengine_refactoring_xfail
 class TestLoadTab:
 

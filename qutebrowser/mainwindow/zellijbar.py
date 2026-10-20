@@ -76,10 +76,22 @@ class ZellijBar(QWidget):
             out.append((tag, label, selected, count))
         return out
 
+    def _on_top(self) -> bool:
+        """Whether no sibling widget (e.g. a tab close button) covers us."""
+        siblings = [c for c in self._bar.children() if isinstance(c, QWidget)]
+        return bool(siblings) and siblings[-1] is self
+
     def refresh(self) -> None:
-        """Recompute geometry from the tab bar and repaint."""
+        """Recompute geometry from the tab bar and repaint.
+
+        Only touch visibility and stacking when they actually change: every
+        show/hide/raise of a child creates or destroys a wl_subsurface on
+        Wayland, and doing that on each arrange churns QtWayland's text
+        input focus (``QWaylandTextInputv3::disableSurface`` warnings).
+        """
         if not config.val.tabs.tiling.zellij_bar or not self._bar.isVisible():
-            self.hide()
+            if not self.isHidden():
+                self.hide()
             return
         fm = QFontMetrics(self.font())
         height = self._bar.height()
@@ -90,9 +102,13 @@ class ZellijBar(QWidget):
         width += arrow
         bar_w = self._bar.width()
         width = min(width, bar_w)
-        self.setGeometry(QRect(bar_w - width, 0, width, height))
-        self.raise_()
-        self.show()
+        geometry = QRect(bar_w - width, 0, width, height)
+        if geometry != self.geometry():
+            self.setGeometry(geometry)
+        if not self._on_top():
+            self.raise_()
+        if self.isHidden():
+            self.show()
         self.update()
 
     def sizeHint(self) -> QSize:  # noqa: N802

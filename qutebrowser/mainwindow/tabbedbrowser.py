@@ -20,7 +20,7 @@ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint
 
 from qutebrowser.config import config
 from qutebrowser.keyinput import modeman
-from qutebrowser.mainwindow import tabwidget, mainwindow
+from qutebrowser.mainwindow import tabwidget, mainwindow, tiling
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
@@ -630,6 +630,7 @@ class TabbedBrowser(QWidget):
             background: bool | None = None,
             related: bool = True,
             idx: int | None = None,
+            tags: int | None = None,
     ) -> browsertab.AbstractTab:
         """Open a new tab with a given URL.
 
@@ -648,6 +649,10 @@ class TabbedBrowser(QWidget):
                          - Explicitly opened tabs are at the very right
                            (related=False)
             idx: The index where the new tab should be opened.
+            tags: The dwm tag mask to put the tab on. None (the default)
+                  places it on the viewed tag, spilling to the next tag
+                  with room; session restore passes the saved mask so the
+                  spill logic does not rearrange a restored window.
 
         Return:
             The opened WebView instance.
@@ -675,10 +680,13 @@ class TabbedBrowser(QWidget):
         if idx is None:
             idx = self._get_new_tab_idx(related)
         self.widget.insertTab(idx, tab, "")
-        # dwm: a new client gets the viewed tags; zellij: a full tab spills
-        # its new pane into the next tab. Session restore overrides this
-        # right after with the saved tags.
-        self.widget.place_new_tab(tab)
+        if tags is None:
+            # dwm: a new client gets the viewed tags; zellij: a full tab
+            # spills its new pane into the next tab.
+            self.widget.place_new_tab(tab)
+        else:
+            tab.data.tags = tags & tiling.TAGMASK or 1
+            self.widget.tiles.schedule()
 
         if url is not None:
             tab.load_url(url)

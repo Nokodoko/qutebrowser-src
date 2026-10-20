@@ -335,9 +335,13 @@ class TileArea(QWidget):
         """Max browser tabs per tag (0 = unlimited)."""
         return config.val.tabs.tiling.max_per_tag
 
-    def tag_list(self) -> list[int]:
-        """All tag masks in bar order, the input to the pure helpers."""
-        return [tags_of(t) for t in self._tabs]
+    def tag_list(self, exclude: QWidget | None = None) -> list[int]:
+        """All tag masks in bar order, the input to the pure helpers.
+
+        ``exclude`` leaves one tab out, for the helpers that ask about the
+        tabs a given tab would join (they must not count the tab itself).
+        """
+        return [tags_of(t) for t in self._tabs if t is not exclude]
 
     def count_on(self, tag: int) -> int:
         return count_on(tag, self.tag_list())

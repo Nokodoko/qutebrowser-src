@@ -187,7 +187,7 @@ class TabWidget(QTabWidget):
         mask &= tiling.TAGMASK
         if not mask:
             return []
-        others = [tiling.tags_of(t) for t in self.tiles._tabs if t is not tab]
+        others = self.tiles.tag_list(exclude=tab)
         full = tiling.tags_over_limit(mask, tiling.tags_of(tab), others,
                                       self.tiles.limit())
         if full:
@@ -205,7 +205,7 @@ class TabWidget(QTabWidget):
         has room and the view follows it.
         """
         start = tiling.lowest_tag(self.tiles.seltags) or 1
-        others = [tiling.tags_of(t) for t in self.tiles._tabs if t is not tab]
+        others = self.tiles.tag_list(exclude=tab)
         target = tiling.next_tag_with_room(start, others, self.tiles.limit())
         tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
         if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
