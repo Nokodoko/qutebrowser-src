@@ -2383,6 +2383,44 @@ tabs.powerline:
     over the next tab's background color (or `colors.tabs.bar.bg` after the
     last tab). Vertical tabs are drawn as usual.
 
+tabs.tiling.layout:
+  default: monocle
+  type:
+    name: String
+    valid_values:
+      - monocle: Only the focused tab is shown, like stock qutebrowser.
+      - tile: dwm-style master/stack tiling of every tab on the viewed tags.
+  desc: >-
+    How the tabs on the selected tags are arranged in the window.
+
+    Tabs carry dwm-style tags (`:tag`, `:tag-toggle`) and the window views a
+    tagset (`:tag-view`, `:tag-toggle-view`). With `tile`, every tab on the
+    viewed tags is visible at once: `tabs.tiling.nmaster` tabs fill the left
+    master column, the rest stack on the right. `:tile-layout` changes this
+    for one window.
+
+tabs.tiling.mfact:
+  default: 0.55
+  type:
+    name: Float
+    minval: 0.05
+    maxval: 0.95
+  desc: Fraction of the width given to the master column in the `tile` layout.
+
+tabs.tiling.nmaster:
+  default: 1
+  type:
+    name: Int
+    minval: 0
+  desc: Number of tabs in the master column of the `tile` layout.
+
+tabs.tiling.gap:
+  default: 0
+  type:
+    name: Int
+    minval: 0
+  desc: Gap in pixels between tiled tabs and around the tiled area.
+
 tabs.select_on_remove:
   default: 'next'
   type: SelectOnRemove

@@ -131,6 +131,8 @@ class TabData:
     fake_click_shift: bool = False
     pinned: bool = False
     fullscreen: bool = False
+    #: dwm-style tag bitmask; bit N-1 set means the tab is on tag N.
+    tags: int = 1
     netrc_used: bool = False
     input_mode: usertypes.KeyMode = usertypes.KeyMode.normal
     last_navigation: usertypes.NavigationRequest | None = None
