@@ -21,6 +21,8 @@ from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
 
 # The segment label of a mode whose name is not its label.
 _SEGMENT_MODE_LABELS = {'passthrough': 'ENGAGE'}
+#: Modes that announce themselves in the bar although keys are not passed on.
+_TILING_MODES = (usertypes.KeyMode.tile, usertypes.KeyMode.bitwise)
 
 
 @dataclasses.dataclass
@@ -454,7 +456,7 @@ class StatusBar(QWidget):
         self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
-        if mode_manager.parsers[mode].passthrough:
+        if mode_manager.parsers[mode].passthrough or mode in _TILING_MODES:
             self._set_mode_text(mode.name)
         if mode in [usertypes.KeyMode.insert,
                     usertypes.KeyMode.command,
@@ -473,7 +475,8 @@ class StatusBar(QWidget):
         self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
-        if mode_manager.parsers[old_mode].passthrough:
+        if (mode_manager.parsers[old_mode].passthrough or
+                old_mode in _TILING_MODES):
             if mode_manager.parsers[new_mode].passthrough:
                 self._set_mode_text(new_mode.name)
             else:

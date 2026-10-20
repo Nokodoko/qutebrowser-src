@@ -123,6 +123,8 @@ class TestKeyConfig:
             'command': {},
             'prompt': {},
             'caret': {},
+            'tile': {},
+            'bitwise': {},
             'register': {},
             'yesno': {}
         }
@@ -135,6 +137,8 @@ class TestKeyConfig:
             'command': {},
             'prompt': {},
             'caret': {},
+            'tile': {},
+            'bitwise': {},
             'register': {},
             'yesno': {}
         }
