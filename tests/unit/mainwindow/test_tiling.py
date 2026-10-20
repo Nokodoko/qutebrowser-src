@@ -98,8 +98,29 @@ class TestArrange:
         _covers(rects, QRect(0, 0, 100, 601))
 
     def test_params_clamped(self):
-        params = tiling.LayoutParams(mfact=2.0, nmaster=-3, gap=-1)
-        assert (params.mfact, params.nmaster, params.gap) == (0.95, 0, 0)
+        params = tiling.LayoutParams(mfact=2.0, nmaster=-3, gap=-1, border=-2)
+        assert (params.mfact, params.nmaster, params.gap, params.border) == (
+            0.95, 0, 0, 0)
+
+    def test_inset_and_frame(self):
+        outer = QRect(10, 20, 100, 50)
+        inner = tiling.inset(outer, 2)
+        assert inner == QRect(12, 22, 96, 46)
+        strips = tiling.frame_rects(outer, inner)
+        assert len(strips) == 4
+        assert sum(r.width() * r.height() for r in strips) == (
+            outer.width() * outer.height() - inner.width() * inner.height())
+        for strip in strips:
+            assert outer.contains(strip) and not strip.intersects(inner)
+
+    def test_inset_zero_is_identity(self):
+        outer = QRect(0, 0, 10, 10)
+        assert tiling.inset(outer, 0) == outer
+        assert tiling.frame_rects(outer, outer) == []
+
+    def test_inset_never_collapses(self):
+        tiny = QRect(0, 0, 3, 3)
+        assert tiling.inset(tiny, 50).isValid()
 
     def test_unknown_layout(self):
         with pytest.raises(ValueError):
@@ -125,6 +146,9 @@ class TestTileArea:
     @pytest.fixture
     def area(self, qtbot, config_stub):
         config_stub.val.tabs.tiling.layout = 'tile'
+        # Geometry expectations below are for bare tiles; the border tests
+        # opt in to a border explicitly.
+        config_stub.val.tabs.tiling.border = 0
         area = tiling.TileArea()
         qtbot.add_widget(area)
         area.resize(1000, 600)
@@ -177,3 +201,30 @@ class TestTileArea:
         area.relayout()
         assert tabs[2].geometry() == area.rect()
         assert not tabs[0].isVisible()
+
+    def test_border_insets_every_tile_and_marks_focus(self, area, tabs,
+                                                       config_stub):
+        config_stub.val.tabs.tiling.border = 3
+        area.params = area._params_from_config()
+        area.relayout()
+        frames = area.frames()
+        assert [focused for _, _, focused in frames] == [True, False]
+        for outer, inner, _ in frames:
+            assert inner == outer.adjusted(3, 3, -3, -3)
+        assert tabs[0].geometry() == frames[0][1]
+        assert tabs[2].geometry() == frames[1][1]
+        # Moving focus recolors the frames but moves nothing.
+        before = [tab.geometry() for tab in tabs]
+        area.set_current(tabs[2])
+        area.relayout()
+        assert [focused for _, _, focused in area.frames()] == [False, True]
+        assert [tab.geometry() for tab in tabs] == before
+
+    def test_fullscreen_drops_border(self, area, tabs, config_stub):
+        config_stub.val.tabs.tiling.border = 3
+        area.params = area._params_from_config()
+        tabs[2].data.fullscreen = True
+        area.set_current(tabs[2])
+        area.relayout()
+        assert tabs[2].geometry() == area.rect()
+        assert area.frames() == [(area.rect(), area.rect(), True)]

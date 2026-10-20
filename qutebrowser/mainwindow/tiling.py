@@ -20,6 +20,7 @@ from collections.abc import Sequence
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, Qt, QTimer, pyqtSignal,
                                  pyqtSlot)
+from qutebrowser.qt.gui import QPainter, QPaintEvent
 from qutebrowser.qt.widgets import QWidget
 
 from qutebrowser.config import config
@@ -75,6 +76,9 @@ class LayoutParams:
     mfact: float = 0.55
     nmaster: int = 1
     gap: int = 0
+    #: dwm's borderpx: every tile is inset by this and framed (see
+    #: TileArea.paintEvent), the focused one in a distinct color.
+    border: int = 0
 
     def __post_init__(self) -> None:
         if self.layout not in LAYOUTS:
@@ -82,6 +86,31 @@ class LayoutParams:
         self.mfact = min(max(self.mfact, 0.05), 0.95)
         self.nmaster = max(self.nmaster, 0)
         self.gap = max(self.gap, 0)
+        self.border = max(self.border, 0)
+
+
+def inset(rect: QRect, border: int) -> QRect:
+    """The client rectangle inside a tile's border (dwm: wa minus 2*bw)."""
+    if border <= 0:
+        return QRect(rect)
+    # Never collapse to nothing on a tile narrower than its own border.
+    bw = min(border, max(rect.width() // 2 - 1, 0))
+    bh = min(border, max(rect.height() // 2 - 1, 0))
+    return rect.adjusted(bw, bh, -bw, -bh)
+
+
+def frame_rects(outer: QRect, inner: QRect) -> list[QRect]:
+    """The four strips between a tile and its client rectangle."""
+    if outer == inner:
+        return []
+    return [
+        QRect(outer.left(), outer.top(), outer.width(), inner.top() - outer.top()),
+        QRect(outer.left(), inner.bottom() + 1, outer.width(),
+              outer.bottom() - inner.bottom()),
+        QRect(outer.left(), inner.top(), inner.left() - outer.left(), inner.height()),
+        QRect(inner.right() + 1, inner.top(), outer.right() - inner.right(),
+              inner.height()),
+    ]
 
 
 def arrange(area: QRect, count: int, params: LayoutParams) -> list[QRect]:
@@ -158,6 +187,9 @@ class TileArea(QWidget):
         params: The active layout parameters.
         _tabs: All tabs in tab-bar order (set by the owner).
         _current: The focused tab, raised in monocle and used as fallback.
+        _frames: (tile rect, client rect, focused) per shown tab, painted as
+                 borders by paintEvent. Children cover the client rect, so
+                 only the strips between the two are ever visible.
 
     Signals:
         arranged: Emitted after a relayout, so a status widget can update.
@@ -174,6 +206,7 @@ class TileArea(QWidget):
         self.params = self._params_from_config()
         self._tabs: list[QWidget] = []
         self._current: QWidget | None = None
+        self._frames: list[tuple[QRect, QRect, bool]] = []
         self._pending = False
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         config.instance.changed.connect(self._on_config_changed)
@@ -185,6 +218,7 @@ class TileArea(QWidget):
             mfact=config.val.tabs.tiling.mfact,
             nmaster=config.val.tabs.tiling.nmaster,
             gap=config.val.tabs.tiling.gap,
+            border=config.val.tabs.tiling.border,
         )
 
     @pyqtSlot(str)
@@ -192,6 +226,8 @@ class TileArea(QWidget):
         if option.startswith('tabs.tiling.'):
             self.params = self._params_from_config()
             self.schedule()
+        elif option.startswith('colors.tabs.tiling.'):
+            self.update()
 
     # ---- bookkeeping driven by the tab widget --------------------------
 
@@ -245,6 +281,10 @@ class TileArea(QWidget):
             self.schedule()
 
     # ---- layout parameters (runtime, per window) -----------------------
+
+    def frames(self) -> list[tuple[QRect, QRect, bool]]:
+        """The (tile, client, focused) rectangles of the last relayout."""
+        return list(self._frames)
 
     def set_layout(self, layout: str) -> None:
         """Switch layout; ``toggle`` flips between tile and monocle."""
@@ -301,11 +341,17 @@ class TileArea(QWidget):
             # painted over, and hidden webviews are cheaper.
             visible = [current]
         rects = arrange(self.rect(), len(visible), self.params)
+        # dwm drops the border on a fullscreen client; every other tile keeps
+        # it so that moving focus only recolors frames, never moves content.
+        border = 0 if fullscreen else self.params.border
         shown = set()
+        frames = []
         for tab, rect in zip(visible, rects):
             shown.add(tab)
-            if tab.geometry() != rect:
-                tab.setGeometry(rect)
+            client = inset(rect, border)
+            frames.append((rect, client, tab is current))
+            if tab.geometry() != client:
+                tab.setGeometry(client)
             if not tab.isVisible():
                 tab.show()
         for tab in self._tabs:
@@ -313,10 +359,34 @@ class TileArea(QWidget):
                 tab.hide()
         if current in shown:
             current.raise_()
+        if frames != self._frames:
+            self._frames = frames
+            self.update()
         log.webview.vdebug(  # type: ignore[attr-defined]
             f"tiled {len(shown)}/{len(self._tabs)} tabs, "
             f"seltags={self.seltags:#b}, layout={self.params.layout}")
         self.arranged.emit()
+
+
+    def paintEvent(self, e: QPaintEvent) -> None:  # noqa: N802
+        """Paint the tile borders; the tabs themselves cover the client rects.
+
+        In monocle the frames of the hidden tiles coincide with the shown
+        one, so the focused frame is painted last and wins.
+        """
+        if not self._frames:
+            return
+        focused_color = config.val.colors.tabs.tiling.border.focused
+        unfocused_color = config.val.colors.tabs.tiling.border.unfocused
+        painter = QPainter(self)
+        for focused in (False, True):
+            color = focused_color if focused else unfocused_color
+            for outer, inner, is_focused in self._frames:
+                if is_focused != focused:
+                    continue
+                for strip in frame_rects(outer, inner):
+                    painter.fillRect(strip, color)
+        painter.end()
 
 
 class _StackWatcher(QObject):

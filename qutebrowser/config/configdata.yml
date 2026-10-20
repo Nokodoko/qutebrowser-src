@@ -2421,6 +2421,20 @@ tabs.tiling.gap:
     minval: 0
   desc: Gap in pixels between tiled tabs and around the tiled area.
 
+tabs.tiling.border:
+  default: 1
+  type:
+    name: Int
+    minval: 0
+  desc: >-
+    Width in pixels of the border drawn around every tiled tab.
+
+    Like dwm's `borderpx`: each visible tab is inset by this much and the
+    frame is painted in `colors.tabs.tiling.border.focused` for the focused
+    tab and `colors.tabs.tiling.border.unfocused` for the others, so the
+    focused tile is apparent at a glance. Every tile carries the border, so
+    moving focus never reflows page content. A fullscreen tab has no border.
+
 tabs.select_on_remove:
   default: 'next'
   type: SelectOnRemove
@@ -3325,6 +3339,16 @@ colors.tabs.selected.odd.bg:
   default: black
   type: QtColor
   desc: Background color of selected odd tabs.
+
+colors.tabs.tiling.border.focused:
+  default: '#005577'
+  type: QtColor
+  desc: Border color of the focused tiled tab (`tabs.tiling.border`).
+
+colors.tabs.tiling.border.unfocused:
+  default: '#444444'
+  type: QtColor
+  desc: Border color of the unfocused tiled tabs (`tabs.tiling.border`).
 
 colors.tabs.selected.even.fg:
   default: white
