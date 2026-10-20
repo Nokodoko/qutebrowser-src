@@ -77,6 +77,7 @@ class TabWidget(QTabWidget):
         self.tiles = tiling.TileArea(stack)
         self._stack_watcher = tiling.cover(stack, self.tiles)
         self.tiles.view_changed.connect(self._on_view_changed)
+        self.tiles.arranged.connect(self._update_bar_visibility)
         self._init_config()
         config.instance.changed.connect(self._init_config)
 
@@ -133,6 +134,31 @@ class TabWidget(QTabWidget):
         self.tiles.set_tabs([t for t in tabs if t is not None])
         self.tiles.set_current(self.currentWidget())
         self.tiles.raise_()
+
+    def _follow_current(self) -> None:
+        """Bring a focused off-view tab's first tag into view.
+
+        Index-based commands (tab-focus, tab-next, undo, ...) can land on a
+        tab whose tags are not viewed; dwm switches the view in that case
+        rather than focusing something invisible.
+        """
+        current = self.currentWidget()
+        if current is None:
+            return
+        tags = tiling.tags_of(current)
+        if not tiling.is_visible(tags, self.tiles.seltags):
+            self.tiles.view(tags & -tags)
+
+    @pyqtSlot()
+    def _update_bar_visibility(self) -> None:
+        """Only list the tabs on the viewed tags in the tab bar."""
+        bar = self.tab_bar()
+        visible = set(self.tiles.visible_tabs())
+        for idx in range(self.count()):
+            tab = self.widget(idx)
+            show = tab in visible or idx == self.currentIndex()
+            if bar.isTabVisible(idx) != show:
+                bar.setTabVisible(idx, show)
 
     def set_tab_tags(self, tab: QWidget, mask: int) -> None:
         """Put a tab on the given tags and refocus if it left the view."""
@@ -417,6 +443,7 @@ class TabWidget(QTabWidget):
         """Emit the tab_index_changed signal if the current tab changed."""
         self.tab_bar().on_current_changed()
         self._sync_tiles()
+        self._follow_current()
         self.update_tab_titles()
         self.tab_index_changed.emit(index, self.count())
 
