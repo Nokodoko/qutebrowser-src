@@ -7,24 +7,37 @@
 from typing import cast
 
 from qutebrowser.qt import machinery
-from qutebrowser.qt.core import pyqtSignal, pyqtSlot, Qt, QSize
-from qutebrowser.qt.gui import QKeyEvent
-from qutebrowser.qt.widgets import QSizePolicy, QWidget
+from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, pyqtProperty, Qt, QSize,
+                                 QEvent, QRect)
+from qutebrowser.qt.gui import QKeyEvent, QColor, QPainter, QPaintEvent
+from qutebrowser.qt.widgets import (QSizePolicy, QWidget, QStyle,
+                                    QStyleOptionFrame)
 
 from qutebrowser.keyinput import modeman, modeparsers
 from qutebrowser.api import cmdutils
 from qutebrowser.misc import cmdhistory, editor
 from qutebrowser.misc import miscwidgets as misc
+from qutebrowser.mainwindow.statusbar import textbase
 from qutebrowser.utils import usertypes, log, objreg, message, utils
 from qutebrowser.config import config
+
+
+# QLineEditPrivate::horizontalMargin: the gap QLineEdit leaves between its
+# contents rect (after the text margins) and the start of the text.
+_LINEEDIT_HMARGIN = 2
 
 
 class Command(misc.CommandLineEdit):
 
     """The commandline part of the statusbar.
 
+    With statusbar.segments, the statusbar stylesheet sets segmentBg to the
+    command mode color, which is painted behind the typed text only (padded by
+    a space on each side), like the statusbar's TextBase labels.
+
     Attributes:
         _win_id: The window ID this widget is associated with.
+        _segment_bg: The segment background color.
 
     Signals:
         got_cmd: Emitted when a command is triggered by the user.
@@ -51,6 +64,7 @@ class Command(misc.CommandLineEdit):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._win_id = win_id
+        self._segment_bg = QColor()
         if not private:
             command_history = objreg.get('command-history')
             self.history.history = command_history.data
@@ -72,6 +86,54 @@ class Command(misc.CommandLineEdit):
             """
         )
         self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+
+    @pyqtProperty(QColor)
+    def segmentBg(self) -> QColor:  # noqa: N802
+        """Getter for segmentBg, so the stylesheet can set it as qproperty."""
+        return self._segment_bg
+
+    @segmentBg.setter  # type: ignore[no-redef]
+    def segmentBg(self, color: QColor) -> None:  # noqa: N802
+        """Setter for segmentBg; re-pads the text and repaints."""
+        self._segment_bg = QColor(color)
+        self._update_segment_margins()
+        self.update()
+
+    def _update_segment_margins(self) -> None:
+        """Reserve the segment padding on both sides of the text."""
+        padding = textbase.segment_padding(self, self._segment_bg)
+        self.setTextMargins(padding, 0, padding, 0)
+
+    def changeEvent(self, e: QEvent | None) -> None:
+        """Extend QLineEdit::changeEvent to re-pad the text on a font change."""
+        super().changeEvent(e)
+        assert e is not None
+        if e.type() == QEvent.Type.FontChange:
+            self._update_segment_margins()
+
+    def _paint_segment(self, padding: int) -> None:
+        """Fill the segment background behind the text."""
+        opt = QStyleOptionFrame()
+        self.initStyleOption(opt)
+        style = self.style()
+        assert style is not None
+        contents = style.subElementRect(
+            QStyle.SubElement.SE_LineEditContents, opt, self)
+        text_left = (contents.left() + self.textMargins().left() +
+                     _LINEEDIT_HMARGIN)
+        text_width = self.fontMetrics().horizontalAdvance(self.text())
+        segment = QRect(text_left - padding, 0,
+                        text_width + 2 * padding, self.height())
+        painter = QPainter(self)
+        painter.fillRect(segment.intersected(self.rect()), self._segment_bg)
+        painter.end()
+
+    def paintEvent(self, e: QPaintEvent | None) -> None:
+        """Extend QLineEdit::paintEvent to paint the segment behind the text."""
+        padding = textbase.segment_padding(self, self._segment_bg)
+        if padding and self.text():
+            self._paint_segment(padding)
+        super().paintEvent(e)
 
     def _handle_search(self) -> bool:
         """Check if the currently entered text is a search, and if so, run it.

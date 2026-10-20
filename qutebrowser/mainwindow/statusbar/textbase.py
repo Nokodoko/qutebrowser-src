@@ -11,6 +11,17 @@ from qutebrowser.qt.gui import QPainter, QColor
 from qutebrowser.utils import qtutils, utils
 
 
+def segment_padding(widget, color):
+    """Get the horizontal padding around a statusbar segment.
+
+    This is a space in the widget's font, or 0 when color is invalid or
+    transparent, i.e. when statusbar.segments is off.
+    """
+    if not color.isValid() or color.alpha() == 0:
+        return 0
+    return widget.fontMetrics().horizontalAdvance(' ')
+
+
 class TextBase(QLabel):
 
     """A text in the statusbar.
@@ -52,9 +63,7 @@ class TextBase(QLabel):
 
     def _segment_padding(self):
         """Get the horizontal segment padding, 0 when segments are off."""
-        if not self._segment_bg.isValid() or self._segment_bg.alpha() == 0:
-            return 0
-        return self.fontMetrics().horizontalAdvance(' ')
+        return segment_padding(self, self._segment_bg)
 
     def _update_segment_margins(self):
         """Reserve the segment padding on both sides of the text."""
