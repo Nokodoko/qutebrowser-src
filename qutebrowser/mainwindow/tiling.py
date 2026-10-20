@@ -341,9 +341,11 @@ class TileArea(QWidget):
             # painted over, and hidden webviews are cheaper.
             visible = [current]
         rects = arrange(self.rect(), len(visible), self.params)
-        # dwm drops the border on a fullscreen client; every other tile keeps
-        # it so that moving focus only recolors frames, never moves content.
-        border = 0 if fullscreen else self.params.border
+        # dwm drops the border on a fullscreen client. A lone tile (monocle,
+        # or a single tab on the viewed tags) has nothing to be told apart
+        # from, so it gets none either. Every other tile keeps it, so moving
+        # focus only recolors frames and never moves content.
+        border = 0 if fullscreen or len(visible) < 2 else self.params.border
         shown = set()
         frames = []
         for tab, rect in zip(visible, rects):
@@ -371,8 +373,7 @@ class TileArea(QWidget):
     def paintEvent(self, e: QPaintEvent) -> None:  # noqa: N802
         """Paint the tile borders; the tabs themselves cover the client rects.
 
-        In monocle the frames of the hidden tiles coincide with the shown
-        one, so the focused frame is painted last and wins.
+        The focused frame is painted last so it wins where frames touch.
         """
         if not self._frames:
             return

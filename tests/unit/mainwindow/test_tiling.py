@@ -220,6 +220,24 @@ class TestTileArea:
         assert [focused for _, _, focused in area.frames()] == [False, True]
         assert [tab.geometry() for tab in tabs] == before
 
+    def test_monocle_drops_border(self, area, tabs, config_stub):
+        config_stub.val.tabs.tiling.border = 3
+        config_stub.val.tabs.tiling.layout = 'monocle'
+        area.params = area._params_from_config()
+        area.relayout()
+        assert tabs[0].geometry() == area.rect()
+        assert area.frames() == [(area.rect(), area.rect(), True)]
+
+    def test_single_tile_drops_border(self, area, tabs, config_stub):
+        config_stub.val.tabs.tiling.border = 3
+        area.params = area._params_from_config()
+        area.view(tiling.tag_mask(2))
+        area.set_tabs([tabs[1]])
+        area.set_current(tabs[1])
+        area.relayout()
+        assert tabs[1].geometry() == area.rect()
+        assert area.frames() == [(area.rect(), area.rect(), True)]
+
     def test_fullscreen_drops_border(self, area, tabs, config_stub):
         config_stub.val.tabs.tiling.border = 3
         area.params = area._params_from_config()

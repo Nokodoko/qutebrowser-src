@@ -2433,7 +2433,8 @@ tabs.tiling.border:
     frame is painted in `colors.tabs.tiling.border.focused` for the focused
     tab and `colors.tabs.tiling.border.unfocused` for the others, so the
     focused tile is apparent at a glance. Every tile carries the border, so
-    moving focus never reflows page content. A fullscreen tab has no border.
+    moving focus never reflows page content. A lone tile (monocle, or a
+    single tab on the viewed tags) and a fullscreen tab have no border.
 
 tabs.select_on_remove:
   default: 'next'
