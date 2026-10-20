@@ -26,7 +26,7 @@ from qutebrowser.utils import (message, usertypes, log, qtutils, urlutils,
 from qutebrowser.utils.usertypes import KeyMode
 from qutebrowser.misc import editor, guiprocess, objects
 from qutebrowser.completion.models import urlmodel, miscmodels
-from qutebrowser.mainwindow import mainwindow, windowundo
+from qutebrowser.mainwindow import mainwindow, windowundo, tiling
 
 
 class CommandDispatcher:
@@ -276,6 +276,160 @@ class CommandDispatcher:
 
         to_pin = not tab.data.pinned
         tab.set_pinned(to_pin)
+
+    # ---- dwm-style tags and tiling ---------------------------------------
+
+    def _tiles(self):
+        return self._tabbed_browser.widget.tiles
+
+    @staticmethod
+    def _tag_mask(tag: str) -> int:
+        """Parse a tag argument: 1-9, or 'all' (dwm MOD+0)."""
+        if tag == 'all':
+            return tiling.TAGMASK
+        try:
+            return tiling.tag_mask(int(tag))
+        except ValueError:
+            raise cmdutils.CommandError(
+                f"Invalid tag {tag!r}, expected 1-{tiling.NUM_TAGS} or 'all'")
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_view(self, tag: str = 'prev', count: int | None = None) -> None:
+        """View the tabs on a tag (dwm view).
+
+        Args:
+            tag: The tag number (1-9), 'all' for every tag, or 'prev' to go
+                 back to the previously viewed tagset.
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        mask = 0 if tag == 'prev' else self._tag_mask(tag)
+        self._tiles().view(mask)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_toggle_view(self, tag: str, count: int | None = None) -> None:
+        """Add or remove a tag from the viewed tagset (dwm toggleview).
+
+        Args:
+            tag: The tag number (1-9).
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        self._tiles().toggleview(self._tag_mask(tag))
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag(self, tag: str, count: int | None = None) -> None:
+        """Move the current tab to a tag (dwm tag).
+
+        Args:
+            tag: The tag number (1-9) or 'all'.
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        self._tabbed_browser.widget.set_tab_tags(
+            self._current_widget(), self._tag_mask(tag))
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_toggle(self, tag: str, count: int | None = None) -> None:
+        """Add or remove a tag on the current tab (dwm toggletag).
+
+        A tab always keeps at least one tag.
+
+        Args:
+            tag: The tag number (1-9).
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        tab = self._current_widget()
+        new = tab.data.tags ^ self._tag_mask(tag)
+        if new:
+            self._tabbed_browser.widget.set_tab_tags(tab, new)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('layout', choices=['tile', 'monocle', 'toggle'])
+    def tile_layout(self, layout: str = 'toggle') -> None:
+        """Set the tiling layout of this window (dwm setlayout).
+
+        Args:
+            layout: `tile`, `monocle`, or `toggle` between the two.
+        """
+        self._tiles().set_layout(layout)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('direction', choices=['next', 'prev'])
+    def tile_focus(self, direction: str = 'next') -> None:
+        """Focus the next/previous visible tab (dwm focusstack).
+
+        Unlike `tab-next`, tabs on tags that are not viewed are skipped.
+
+        Args:
+            direction: `next` or `prev`.
+        """
+        visible = self._tiles().visible_tabs()
+        if not visible:
+            return
+        current = self._current_widget()
+        step = 1 if direction == 'next' else -1
+        idx = visible.index(current) if current in visible else -1
+        target = visible[(idx + step) % len(visible)]
+        self._tabbed_browser.widget.setCurrentWidget(target)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_zoom(self) -> None:
+        """Swap the current tab with the master (dwm zoom).
+
+        If the current tab already is the master, the next visible tab
+        becomes master instead.
+        """
+        visible = self._tiles().visible_tabs()
+        current = self._current_widget()
+        if len(visible) < 2 or current not in visible:
+            return
+        target = visible[1] if current is visible[0] else current
+        bar = self._tabbed_browser.widget.tabBar()
+        src = self._tabbed_browser.widget.indexOf(target)
+        dst = self._tabbed_browser.widget.indexOf(visible[0])
+        bar.moveTab(src, dst)
+        self._tabbed_browser.widget.setCurrentWidget(target)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_mfact(self, value: str = '+0.05') -> None:
+        """Change the master column width (dwm setmfact).
+
+        Args:
+            value: A delta like `+0.05` / `-0.05`, or an absolute fraction
+                   like `0.55`.
+        """
+        try:
+            delta = float(value)
+        except ValueError:
+            raise cmdutils.CommandError(f"Invalid mfact {value!r}")
+        tiles = self._tiles()
+        new = tiles.params.mfact + delta if value[0] in '+-' else delta
+        tiles.set_mfact(new)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_nmaster(self, value: str = '+1') -> None:
+        """Change the number of master tabs (dwm incnmaster).
+
+        Args:
+            value: A delta like `+1` / `-1`, or an absolute count.
+        """
+        try:
+            delta = int(value)
+        except ValueError:
+            raise cmdutils.CommandError(f"Invalid nmaster {value!r}")
+        tiles = self._tiles()
+        new = tiles.params.nmaster + delta if value[0] in '+-' else delta
+        tiles.set_nmaster(new)
 
     @cmdutils.register(instance='command-dispatcher', name='open',
                        maxsplit=0, scope='window')

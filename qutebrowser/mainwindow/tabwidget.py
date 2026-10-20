@@ -134,6 +134,15 @@ class TabWidget(QTabWidget):
         self.tiles.set_current(self.currentWidget())
         self.tiles.raise_()
 
+    def set_tab_tags(self, tab: QWidget, mask: int) -> None:
+        """Put a tab on the given tags and refocus if it left the view."""
+        mask &= tiling.TAGMASK
+        if not mask:
+            return
+        tab.data.tags = mask  # type: ignore[attr-defined]
+        self.tiles.schedule()
+        self._on_view_changed(self.tiles.seltags)
+
     @pyqtSlot(int)
     def _on_view_changed(self, seltags: int) -> None:
         """Keep the current tab on the viewed tags, like dwm's focus(NULL)."""

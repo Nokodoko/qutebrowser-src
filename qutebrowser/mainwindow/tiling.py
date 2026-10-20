@@ -244,6 +244,23 @@ class TileArea(QWidget):
             self.view_changed.emit(self.seltags)
             self.schedule()
 
+    # ---- layout parameters (runtime, per window) -----------------------
+
+    def set_layout(self, layout: str) -> None:
+        """Switch layout; ``toggle`` flips between tile and monocle."""
+        if layout == 'toggle':
+            layout = 'monocle' if self.params.layout == 'tile' else 'tile'
+        self.params = dataclasses.replace(self.params, layout=layout)
+        self.schedule()
+
+    def set_mfact(self, mfact: float) -> None:
+        self.params = dataclasses.replace(self.params, mfact=mfact)
+        self.schedule()
+
+    def set_nmaster(self, nmaster: int) -> None:
+        self.params = dataclasses.replace(self.params, nmaster=nmaster)
+        self.schedule()
+
     def visible_tabs(self) -> list[QWidget]:
         """The tabs on the selected tagset, in stack order."""
         return [t for t in self._tabs

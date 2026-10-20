@@ -220,6 +220,8 @@ class SessionManager(QObject):
                 data['scroll-pos'] = {'x': pos.x(), 'y': pos.y()}
 
         data['pinned'] = tab.data.pinned
+        if tab.data.tags != 1:
+            data['tags'] = tab.data.tags
 
         return data
 
@@ -411,6 +413,8 @@ class SessionManager(QObject):
 
             if 'pinned' in histentry:
                 new_tab.data.pinned = histentry['pinned']
+            if 'tags' in histentry:
+                new_tab.data.tags = int(histentry['tags'])
 
             if (config.val.session.lazy_restore and
                     histentry.get('active', False) and
