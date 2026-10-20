@@ -80,6 +80,12 @@ class ChildEventFilter(QObject):
                 return False
 
             child = event.child()
+            if not isinstance(child, QWidget):
+                # Same non-widget children as for ChildAdded above. QtWebEngine
+                # 6.11 adds and removes thousands of accessibility nodes per
+                # view, so don't format a log line for each.
+                return False
+
             log.misc.debug(
                 f"{qtutils.qobj_repr(obj)}: removed child {qtutils.qobj_repr(child)}")
 
