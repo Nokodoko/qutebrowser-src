@@ -55,6 +55,17 @@ def is_visible(tags: int, seltags: int) -> bool:
     return bool(tags & seltags & TAGMASK)
 
 
+def tags_of(tab: QWidget) -> int:
+    """The tag mask of a tab widget; plain widgets live on tag 1."""
+    data = getattr(tab, 'data', None)
+    return getattr(data, 'tags', 1)
+
+
+def _is_fullscreen(tab: QWidget) -> bool:
+    data = getattr(tab, 'data', None)
+    return bool(getattr(data, 'fullscreen', False))
+
+
 @dataclasses.dataclass
 class LayoutParams:
 
@@ -200,6 +211,15 @@ class TileArea(QWidget):
             tab.setParent(self)
         tab.hide()
 
+    def detach(self, tab: QWidget) -> None:
+        """Forget a tab that is being removed; the owner deletes it."""
+        tab.hide()
+        if tab in self._tabs:
+            self._tabs.remove(tab)
+        if tab is self._current:
+            self._current = None
+        self.schedule()
+
     # ---- tag operations (names follow dwm) ----------------------------
 
     def view(self, mask: int) -> None:
@@ -227,13 +247,13 @@ class TileArea(QWidget):
     def visible_tabs(self) -> list[QWidget]:
         """The tabs on the selected tagset, in stack order."""
         return [t for t in self._tabs
-                if is_visible(getattr(t.data, 'tags', 1), self.seltags)]
+                if is_visible(tags_of(t), self.seltags)]
 
     def occupied(self) -> int:
         """Bitmask of tags that have at least one tab."""
         mask = 0
         for t in self._tabs:
-            mask |= getattr(t.data, 'tags', 1)
+            mask |= tags_of(t)
         return mask & TAGMASK
 
     # ---- layout --------------------------------------------------------
@@ -256,7 +276,7 @@ class TileArea(QWidget):
         visible = self.visible_tabs()
         current = self._current
         fullscreen = (current is not None and current in visible and
-                      getattr(current.data, 'fullscreen', False))
+                      _is_fullscreen(current))
         if fullscreen:
             visible = [current]
         if self.params.layout == 'monocle' and current in visible:

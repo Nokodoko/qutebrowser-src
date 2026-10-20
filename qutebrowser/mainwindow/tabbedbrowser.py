@@ -213,6 +213,9 @@ class TabbedBrowser(QWidget):
             self.tabopen)  # type: ignore[arg-type,unused-ignore]
         self.widget.currentChanged.connect(self._on_current_changed)
         self.cur_fullscreen_requested.connect(self.widget.tab_bar().maybe_hide)
+        # A fullscreen tab takes the whole tile area.
+        self.cur_fullscreen_requested.connect(
+            lambda _on: self.widget.tiles.schedule())
 
         self.widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 

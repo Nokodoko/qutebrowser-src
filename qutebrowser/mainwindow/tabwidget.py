@@ -13,13 +13,30 @@ from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, Qt, QSize, QRect, QPoint,
                           QPointF, QTimer, QUrl)
 from qutebrowser.qt.widgets import (QTabWidget, QTabBar, QSizePolicy, QProxyStyle,
                              QStyle, QStylePainter, QStyleOptionTab,
-                             QCommonStyle)
+                             QCommonStyle, QStackedWidget, QWidget)
 from qutebrowser.qt.gui import QIcon, QPalette, QColor, QPainter, QPolygonF
 
 from qutebrowser.utils import qtutils, objreg, utils, usertypes, log
 from qutebrowser.config import config, stylesheet
 from qutebrowser.misc import objects, debugcachestats
 from qutebrowser.browser import browsertab
+from qutebrowser.mainwindow import tiling
+
+
+class _TabProxy(QWidget):
+
+    """The page QTabWidget holds in place of a tab.
+
+    The real tab widgets live in the TileArea so several can be visible at
+    once; QTabWidget only needs one page per tab to keep its indices, titles
+    and current-index machinery working.
+    """
+
+    def __init__(self, tab: QWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.tab = tab
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
 class TabWidget(QTabWidget):
@@ -50,12 +67,84 @@ class TabWidget(QTabWidget):
             QTimer.singleShot, 0, self.update_tab_titles))
         bar.currentChanged.connect(self._on_current_changed)
         bar.new_tab_requested.connect(self._on_new_tab_requested)
+        bar.tabMoved.connect(lambda *_: self._sync_tiles())
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setDocumentMode(True)
         self.setUsesScrollButtons(True)
         bar.setDrawBase(False)
+        stack = self.findChild(QStackedWidget)
+        assert stack is not None
+        self.tiles = tiling.TileArea(stack)
+        self._stack_watcher = tiling.cover(stack, self.tiles)
+        self.tiles.view_changed.connect(self._on_view_changed)
         self._init_config()
         config.instance.changed.connect(self._init_config)
+
+    # ---- tab <-> proxy mapping -------------------------------------------
+    #
+    # These shadow the QTabWidget accessors for every Python caller so the
+    # rest of qutebrowser keeps talking about real tabs by index.
+
+    def widget(self, idx: int) -> QWidget | None:  # type: ignore[override]
+        """Get the tab at the given index (the proxy's tab)."""
+        page = super().widget(idx)
+        if isinstance(page, _TabProxy):
+            return page.tab
+        return page
+
+    def indexOf(self, widget: QWidget | None) -> int:  # type: ignore[override]  # noqa: N802
+        """Get the index of a tab or of its proxy."""
+        if widget is None:
+            return -1
+        if not isinstance(widget, _TabProxy):
+            for idx in range(self.count()):
+                page = super().widget(idx)
+                if isinstance(page, _TabProxy) and page.tab is widget:
+                    return idx
+        return super().indexOf(widget)
+
+    def currentWidget(self) -> QWidget | None:  # type: ignore[override]  # noqa: N802
+        """Get the current tab."""
+        idx = self.currentIndex()
+        return None if idx == -1 else self.widget(idx)
+
+    def setCurrentWidget(self, widget: QWidget | None) -> None:  # type: ignore[override]  # noqa: N802
+        """Make the given tab current."""
+        idx = self.indexOf(widget)
+        if idx != -1:
+            self.setCurrentIndex(idx)
+
+    def _wrap(self, page: QWidget) -> QWidget:
+        """Move a new tab into the tile area and return its proxy page."""
+        self.tiles.attach(page)
+        return _TabProxy(page)
+
+    def removeTab(self, idx: int) -> None:  # noqa: N802
+        """Remove a tab and its proxy; the caller deletes the tab."""
+        page = super().widget(idx)
+        super().removeTab(idx)
+        if isinstance(page, _TabProxy):
+            self.tiles.detach(page.tab)
+            page.deleteLater()
+
+    def _sync_tiles(self) -> None:
+        """Tell the tile area the current tab order and focus."""
+        tabs = [self.widget(i) for i in range(self.count())]
+        self.tiles.set_tabs([t for t in tabs if t is not None])
+        self.tiles.set_current(self.currentWidget())
+        self.tiles.raise_()
+
+    @pyqtSlot(int)
+    def _on_view_changed(self, seltags: int) -> None:
+        """Keep the current tab on the viewed tags, like dwm's focus(NULL)."""
+        current = self.currentWidget()
+        if current is not None and tiling.is_visible(tiling.tags_of(current), seltags):
+            return
+        visible = self.tiles.visible_tabs()
+        if visible:
+            self.setCurrentWidget(visible[0])
+        else:
+            self.tiles.set_current(current)
 
     @config.change_filter('tabs')
     def _init_config(self):
@@ -247,11 +336,13 @@ class TabWidget(QTabWidget):
     def tabInserted(self, idx):
         """Update titles when a tab was inserted."""
         super().tabInserted(idx)
+        self._sync_tiles()
         self.update_tab_titles()
 
     def tabRemoved(self, idx):
         """Update titles when a tab was removed."""
         super().tabRemoved(idx)
+        self._sync_tiles()
         self.update_tab_titles()
 
     def addTab(self, page, icon_or_text, text_or_empty=None):
@@ -271,13 +362,14 @@ class TabWidget(QTabWidget):
         Return:
             The index of the newly added tab.
         """
+        proxy = self._wrap(page)
         if text_or_empty is None:
             text = icon_or_text
-            new_idx = super().addTab(page, '')
+            new_idx = super().addTab(proxy, '')
         else:
             icon = icon_or_text
             text = text_or_empty
-            new_idx = super().addTab(page, icon, '')
+            new_idx = super().addTab(proxy, icon, '')
         self.set_page_title(new_idx, text)
         return new_idx
 
@@ -300,13 +392,14 @@ class TabWidget(QTabWidget):
         Return:
             The index of the newly added tab.
         """
+        proxy = self._wrap(page)
         if text_or_empty is None:
             text = icon_or_text
-            new_idx = super().insertTab(idx, page, '')
+            new_idx = super().insertTab(idx, proxy, '')
         else:
             icon = icon_or_text
             text = text_or_empty
-            new_idx = super().insertTab(idx, page, icon, '')
+            new_idx = super().insertTab(idx, proxy, icon, '')
         self.set_page_title(new_idx, text)
         return new_idx
 
@@ -314,6 +407,7 @@ class TabWidget(QTabWidget):
     def _on_current_changed(self, index):
         """Emit the tab_index_changed signal if the current tab changed."""
         self.tab_bar().on_current_changed()
+        self._sync_tiles()
         self.update_tab_titles()
         self.tab_index_changed.emit(index, self.count())
 
