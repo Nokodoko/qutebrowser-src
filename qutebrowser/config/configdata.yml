@@ -4199,8 +4199,18 @@ bindings.default:
       D: tile-nmaster -1
       <Up>: scroll up
       <Down>: scroll down
+      <Left>: scroll left
+      <Right>: scroll right
       u: scroll-page 0 -0.5
       d: scroll-page 0 0.5
+      <PgUp>: scroll-page 0 -1
+      <PgDown>: scroll-page 0 1
+      gg: scroll-to-perc 0
+      G: scroll-to-perc
+      <Home>: scroll-to-perc 0
+      <End>: scroll-to-perc
+      H: back
+      L: forward
       T: mode-enter bitwise
       r: cmd-set-text --space :tag-rename
       <Escape>: mode-leave
@@ -4326,8 +4336,9 @@ bindings.commands:
     * tile: dwm-style tag and tiling keys (`:mode-enter tile`): digits view a
       tag, `0` views all, `f` toggles tile/monocle, `j`/`k` move through the
       visible tiles, `h`/`l` resize the master, `I`/`D` change the master
-      count, `<Up>`/`<Down>` and `u`/`d` scroll the page, `T` enters bitwise
-      mode.
+      count, `T` enters bitwise mode. It doubles as normal mode for moving
+      around: arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to
+      the top/bottom, `H`/`L` go back/forward in history.
 
     * bitwise: Entered with `T` from tile mode to compose the viewed tagset:
       each digit toggles that tag in the view, `<Return>` goes back to tile
