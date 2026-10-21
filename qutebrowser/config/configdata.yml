@@ -4211,6 +4211,8 @@ bindings.default:
       <End>: scroll-to-perc
       H: back
       L: forward
+      +: zoom-in
+      '-': zoom-out
       T: mode-enter bitwise
       r: cmd-set-text --space :tag-rename
       <Escape>: mode-leave
@@ -4338,7 +4340,7 @@ bindings.commands:
       visible tiles, `h`/`l` resize the master, `I`/`D` change the master
       count, `T` enters bitwise mode. It doubles as normal mode for moving
       around: arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to
-      the top/bottom, `H`/`L` go back/forward in history.
+      the top/bottom, `H`/`L` go back/forward in history, `+`/`-` zoom.
 
     * bitwise: Entered with `T` from tile mode to compose the viewed tagset:
       each digit toggles that tag in the view, `<Return>` goes back to tile
