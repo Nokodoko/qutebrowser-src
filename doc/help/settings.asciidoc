@@ -487,7 +487,9 @@ The following modes are available:
 
 * tile: dwm-style tag and tiling keys (`:mode-enter tile`): digits view a
   tag, `0` views all, `f` toggles tile/monocle, `j`/`k` move through the
-  visible tiles, `T` enters bitwise mode.
+  visible tiles, `h`/`l` resize the master, `I`/`D` change the master
+  count, `<Up>`/`<Down>` and `u`/`d` scroll the page, `T` enters bitwise
+  mode.
 
 * bitwise: Entered with `T` from tile mode to compose the viewed tagset:
   each digit toggles that tag in the view, `<Return>` goes back to tile
@@ -841,18 +843,22 @@ Default:
 * +pass:[7]+: +pass:[tag-view 7]+
 * +pass:[8]+: +pass:[tag-view 8]+
 * +pass:[9]+: +pass:[tag-view 9]+
+* +pass:[&lt;Down&gt;]+: +pass:[scroll down]+
 * +pass:[&lt;Escape&gt;]+: +pass:[mode-leave]+
 * +pass:[&lt;Return&gt;]+: +pass:[tile-zoom]+
 * +pass:[&lt;Tab&gt;]+: +pass:[tag-view prev]+
+* +pass:[&lt;Up&gt;]+: +pass:[scroll up]+
+* +pass:[D]+: +pass:[tile-nmaster -1]+
+* +pass:[I]+: +pass:[tile-nmaster +1]+
 * +pass:[T]+: +pass:[mode-enter bitwise]+
-* +pass:[d]+: +pass:[tile-nmaster -1]+
+* +pass:[d]+: +pass:[scroll-page 0 0.5]+
 * +pass:[f]+: +pass:[tile-layout toggle]+
 * +pass:[h]+: +pass:[tile-mfact -0.05]+
-* +pass:[i]+: +pass:[tile-nmaster +1]+
 * +pass:[j]+: +pass:[tile-focus next]+
 * +pass:[k]+: +pass:[tile-focus prev]+
 * +pass:[l]+: +pass:[tile-mfact +0.05]+
 * +pass:[r]+: +pass:[cmd-set-text --space :tag-rename]+
+* +pass:[u]+: +pass:[scroll-page 0 -0.5]+
 - +pass:[yesno]+:
 
 * +pass:[&lt;Alt-Shift-Y&gt;]+: +pass:[prompt-yank --sel]+

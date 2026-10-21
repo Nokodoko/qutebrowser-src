@@ -23,9 +23,6 @@ from qutebrowser.misc import objects
 
 INPUT_MODES = [usertypes.KeyMode.insert, usertypes.KeyMode.passthrough]
 PROMPT_MODES = [usertypes.KeyMode.prompt, usertypes.KeyMode.yesno]
-#: dwm-style tiling modes: like prompts they are a detour, so leaving one
-#: returns to the input mode it was entered from instead of normal.
-TILE_MODES = [usertypes.KeyMode.tile, usertypes.KeyMode.bitwise]
 
 # FIXME:mypy TypedDict?
 ParserDictType: TypeAlias = MutableMapping[usertypes.KeyMode, basekeyparser.BaseKeyParser]
@@ -395,11 +392,7 @@ class ModeManager(QObject):
             log.modes.debug("Overriding mode {}.".format(self.mode))
             self.left.emit(self.mode, mode, self._win_id)
 
-        if mode in TILE_MODES and self.mode in TILE_MODES:
-            # tile <-> bitwise hop: keep where the detour started.
-            pass
-        elif (mode in PROMPT_MODES or mode in TILE_MODES) and \
-                self.mode in INPUT_MODES:
+        if mode in PROMPT_MODES and self.mode in INPUT_MODES:
             self._prev_mode = self.mode
         else:
             self._prev_mode = usertypes.KeyMode.normal
@@ -456,7 +449,7 @@ class ModeManager(QObject):
         self.clear_keychain()
         self.mode = usertypes.KeyMode.normal
         self.left.emit(mode, self.mode, self._win_id)
-        if mode in PROMPT_MODES or mode in TILE_MODES:
+        if mode in PROMPT_MODES:
             self.enter(self._prev_mode,
                        reason='restore mode before {}'.format(mode.name))
 
