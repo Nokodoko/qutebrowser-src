@@ -2447,6 +2447,31 @@ tabs.tiling.max_per_tag:
     opened while the viewed tag is full goes to the next tag with room and
     the view follows it. 0 disables the limit.
 
+tabs.tiling.rule_tag:
+  default: 0
+  type:
+    name: Int
+    minval: 0
+    maxval: 9
+  supports_pattern: true
+  desc: >-
+    dwm-style rule: set it for a URL pattern to make tabs whose first page
+    matches start on that tag, e.g.
+    `config.set('tabs.tiling.rule_tag', 2, 'youtube.com')`.
+
+    0 means no rule. Applied once per tab, on its first http(s)/file URL,
+    never on later navigations; session restore keeps saved tags. If the
+    tag is full (`tabs.tiling.max_per_tag`) the tab spills from that tag to
+    the next with room.
+
+tabs.tiling.rule_follow:
+  default: true
+  type: Bool
+  desc: >-
+    When a rule places a new foreground tab on a tag that is not viewed,
+    view that tag (dwm leaves the client where it is and the user goes to
+    it; this follows instead). Background tabs never pull the view.
+
 tabs.tiling.zellij_bar:
   default: true
   type: Bool

@@ -121,6 +121,8 @@ class TabData:
         netrc_used: Whether netrc authentication was performed.
         input_mode: current input mode for the tab.
         splitter: InspectorSplitter used to show inspector inside the tab.
+        tag_rule_done: Whether the tag rule has been evaluated for this tab
+                       (rules fire once).
     """
 
     keep_icon: bool = False
@@ -133,6 +135,8 @@ class TabData:
     fullscreen: bool = False
     #: dwm-style tag bitmask; bit N-1 set means the tab is on tag N.
     tags: int = 1
+    #: Whether the tag rule has been evaluated (rules fire once per tab).
+    tag_rule_done: bool = False
     netrc_used: bool = False
     input_mode: usertypes.KeyMode = usertypes.KeyMode.normal
     last_navigation: usertypes.NavigationRequest | None = None

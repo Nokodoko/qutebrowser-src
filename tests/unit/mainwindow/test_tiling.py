@@ -6,8 +6,9 @@
 
 import pytest
 
-from qutebrowser.qt.core import QRect
+from qutebrowser.qt.core import QRect, QUrl
 from qutebrowser.qt.widgets import QWidget
+from qutebrowser.utils import urlmatch
 from qutebrowser.mainwindow import tiling
 
 
@@ -139,6 +140,38 @@ class _Tab(QWidget):
     def __init__(self, tags=1, parent=None):
         super().__init__(parent)
         self.data = self._Data(tags)
+
+
+class TestRules:
+
+    """is_rule_url / rule_tag: the dwm-style URL-to-tag rule lookup."""
+
+    @pytest.mark.parametrize('url, expected', [
+        ('http://example.com/', True),
+        ('https://example.com/', True),
+        ('file:///home/user/index.html', True),
+        ('qute://settings/', False),
+        ('about:blank', False),
+    ])
+    def test_is_rule_url(self, url, expected):
+        assert tiling.is_rule_url(QUrl(url)) is expected
+
+    def test_is_rule_url_invalid(self):
+        assert tiling.is_rule_url(QUrl()) is False
+
+    def test_rule_tag_no_rule(self, config_stub):
+        assert tiling.rule_tag(QUrl('https://example.com/')) == 0
+
+    def test_rule_tag_matches_pattern(self, config_stub):
+        pattern = urlmatch.UrlPattern('*.youtube.com')
+        config_stub.set_obj('tabs.tiling.rule_tag', 3, pattern=pattern)
+        assert tiling.rule_tag(QUrl('https://www.youtube.com/watch')) == 3
+        assert tiling.rule_tag(QUrl('https://example.com/')) == 0
+
+    def test_rule_tag_ignores_internal_urls(self, config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 5)
+        assert tiling.rule_tag(QUrl('qute://settings/')) == 0
+        assert tiling.rule_tag(QUrl()) == 0
 
 
 class TestTileArea:

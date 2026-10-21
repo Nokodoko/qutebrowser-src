@@ -680,19 +680,30 @@ class TabbedBrowser(QWidget):
         if idx is None:
             idx = self._get_new_tab_idx(related)
         self.widget.insertTab(idx, tab, "")
+        if background is None:
+            background = config.val.tabs.background
         if tags is None:
-            # dwm: a new client gets the viewed tags; zellij: a full tab
-            # spills its new pane into the next tab.
-            self.widget.place_new_tab(tab)
+            # dwm: a new client gets the viewed tags (or its rule's tag);
+            # zellij: a full tab spills its new pane into the next tab.
+            # A background tab never pulls the view to a rule's tag.
+            self.widget.place_new_tab(
+                tab, url=url,
+                follow=not background and config.val.tabs.tiling.rule_follow)
+            if not tiling.is_visible(tab.data.tags, self.widget.tiles.seltags):
+                # A rule put the tab on a tag we are not following to.
+                # Making it current would pull the view there anyway
+                # (setCurrentIndex views an off-view tab's tag), so it
+                # stays in the background, like dwm leaves focus put.
+                background = True
         else:
+            # Session restore: saved tags are the rule, never re-applied.
             tab.data.tags = tags & tiling.TAGMASK or 1
+            tab.data.tag_rule_done = True
             self.widget.tiles.schedule()
 
         if url is not None:
             tab.load_url(url)
 
-        if background is None:
-            background = config.val.tabs.background
         if background:
             # Make sure the background tab has the correct initial size.
             # With a foreground tab, it's going to be resized correctly by the
@@ -848,6 +859,13 @@ class TabbedBrowser(QWidget):
         except TabDeletedError:
             # We can get signals for tabs we already deleted...
             return
+
+        if not tab.data.tag_rule_done:
+            # dwm applies rules at map time: the first real page decides.
+            self.widget.apply_tag_rule(
+                tab, url,
+                follow=(tab is self.widget.currentWidget())
+                and config.val.tabs.tiling.rule_follow)
 
         if not self.widget.page_title(idx):
             self.widget.set_page_title(idx, url.toDisplayString())

@@ -54,3 +54,36 @@ def test_non_alphanumeric(key, modifiers, filtered, modeman):
     """Make sure non-alphanumeric keys are passed through correctly."""
     evt = keyutils.KeyInfo(key=key, modifiers=modifiers).to_event()
     assert modeman.handle_event(evt) == filtered
+
+
+@pytest.mark.parametrize('start, expected', [
+    (usertypes.KeyMode.normal, usertypes.KeyMode.normal),
+    (usertypes.KeyMode.passthrough, usertypes.KeyMode.passthrough),
+    (usertypes.KeyMode.insert, usertypes.KeyMode.insert),
+])
+def test_tile_mode_restores_input_mode(mode_manager, start, expected):
+    """Leaving tile mode returns to the input mode it was entered from."""
+    if start != usertypes.KeyMode.normal:
+        mode_manager.enter(start)
+    mode_manager.enter(usertypes.KeyMode.tile)
+    assert mode_manager.mode == usertypes.KeyMode.tile
+    mode_manager.leave(usertypes.KeyMode.tile)
+    assert mode_manager.mode == expected
+
+
+def test_tile_bitwise_hop_keeps_origin(mode_manager):
+    """tile -> bitwise -> tile -> leave lands back in the origin mode."""
+    mode_manager.enter(usertypes.KeyMode.passthrough)
+    mode_manager.enter(usertypes.KeyMode.tile)
+    mode_manager.enter(usertypes.KeyMode.bitwise)
+    mode_manager.enter(usertypes.KeyMode.tile)
+    mode_manager.leave(usertypes.KeyMode.tile)
+    assert mode_manager.mode == usertypes.KeyMode.passthrough
+
+
+def test_caret_still_leaves_to_normal(mode_manager):
+    """Non-tile, non-prompt modes keep the old behaviour."""
+    mode_manager.enter(usertypes.KeyMode.passthrough)
+    mode_manager.enter(usertypes.KeyMode.caret)
+    mode_manager.leave(usertypes.KeyMode.caret)
+    assert mode_manager.mode == usertypes.KeyMode.normal

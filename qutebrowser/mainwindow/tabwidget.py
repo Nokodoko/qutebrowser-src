@@ -197,20 +197,71 @@ class TabWidget(QTabWidget):
         self._on_view_changed(self.tiles.seltags)
         return []
 
-    def place_new_tab(self, tab: QWidget) -> None:
-        """Give a new tab the viewed tag, spilling to the next tag with room.
+    def place_new_tab(self, tab: QWidget, url: QUrl | None = None,
+                      follow: bool = True) -> None:
+        """Give a new tab its tags, by rule or by viewing the current tag.
 
-        dwm gives a new client the monitor's tagset; zellij tabs cap their
-        panes, so a full tag hands the new browser tab to the next tag that
-        has room and the view follows it.
+        When ``url`` matches a dwm-style rule (``tabs.tiling.rule_tag`` set
+        for that URL pattern), the tab starts on the rule's tag instead of
+        the viewed one; a full rule tag spills to the next tag with room
+        just like a full viewed tag does. Otherwise dwm gives a new client
+        the monitor's tagset; zellij tabs cap their panes, so a full tag
+        hands the new browser tab to the next tag that has room and the view
+        follows it.
+
+        Args:
+            tab: The tab being placed.
+            url: The URL the tab is opened with, if any. Rules are only
+                 evaluated here when it is a real page.
+            follow: Whether placing on an unviewed tag may switch the view
+                    (a foreground tab follows, a background tab does not).
         """
-        start = tiling.lowest_tag(self.tiles.seltags) or 1
+        rule = 0
+        if url is not None and tiling.is_rule_url(url):
+            tab.data.tag_rule_done = True  # type: ignore[attr-defined]
+            rule = tiling.rule_tag(url)
+        if rule > 0:
+            start = rule
+        else:
+            start = tiling.lowest_tag(self.tiles.seltags) or 1
         others = self.tiles.tag_list(exclude=tab)
         target = tiling.next_tag_with_room(start, others, self.tiles.limit())
         tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
         if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
-            self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
+            # A rule-placed tab only pulls the view when following (dwm
+            # leaves the client where it is); the default spill always did.
+            if follow or rule == 0:
+                self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
         self.tiles.schedule()
+
+    def apply_tag_rule(self, tab: QWidget, url: QUrl, follow: bool) -> None:
+        """Move a tab opened without URL onto its rule's tag, once.
+
+        dwm applies rules at map time only: the first real page a tab
+        navigates to decides its tag and no later navigation ever moves it
+        again. A tab that is already on the rule's tag stays put.
+
+        Args:
+            tab: The tab that just navigated.
+            url: The URL it navigated to.
+            follow: Whether moving to an unviewed tag may switch the view.
+        """
+        if tab.data.tag_rule_done or not tiling.is_rule_url(url):  # type: ignore[attr-defined]
+            return
+        tab.data.tag_rule_done = True  # type: ignore[attr-defined]
+        tag = tiling.rule_tag(url)
+        if tag == 0 or tag in tiling.tag_numbers(tiling.tags_of(tab)):
+            return
+        others = self.tiles.tag_list(exclude=tab)
+        target = tiling.next_tag_with_room(tag, others, self.tiles.limit())
+        tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
+        self.tiles.schedule()
+        if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
+            if follow:
+                self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
+            else:
+                # The tab left the view; keep the current tab a viewed one.
+                self._on_view_changed(self.tiles.seltags)
 
     @pyqtSlot(int)
     def _on_view_changed(self, seltags: int) -> None:

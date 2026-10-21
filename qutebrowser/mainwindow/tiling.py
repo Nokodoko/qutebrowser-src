@@ -18,8 +18,8 @@ import dataclasses
 import math
 from collections.abc import Sequence
 
-from qutebrowser.qt.core import (QEvent, QObject, QRect, Qt, QTimer, pyqtSignal,
-                                 pyqtSlot)
+from qutebrowser.qt.core import (QEvent, QObject, QRect, QUrl, Qt, QTimer,
+                                 pyqtSignal, pyqtSlot)
 from qutebrowser.qt.gui import QPainter, QPaintEvent
 from qutebrowser.qt.widgets import QWidget
 
@@ -144,6 +144,29 @@ def tags_of(tab: QWidget) -> int:
     """The tag mask of a tab widget; plain widgets live on tag 1."""
     data = getattr(tab, 'data', None)
     return getattr(data, 'tags', 1)
+
+
+def is_rule_url(url: QUrl) -> bool:
+    """Whether a URL is a real page a tag rule may be evaluated for.
+
+    Only http, https and file URLs count; internal pages (qute://), empty
+    pages and invalid URLs do not.
+    """
+    if not url.isValid():
+        return False
+    return url.scheme() in ('http', 'https', 'file')
+
+
+def rule_tag(url: QUrl) -> int:
+    """The dwm-style tag rule matching ``url``, 0 when there is none.
+
+    Looks up the pattern-scoped ``tabs.tiling.rule_tag`` setting for the
+    URL; anything that is not a real page (see ``is_rule_url``) never
+    matches.
+    """
+    if not is_rule_url(url):
+        return 0
+    return config.instance.get('tabs.tiling.rule_tag', url=url)
 
 
 def _is_fullscreen(tab: QWidget) -> bool:

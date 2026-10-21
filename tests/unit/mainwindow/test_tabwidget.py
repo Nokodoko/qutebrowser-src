@@ -10,9 +10,10 @@ import functools
 import pytest
 from unittest.mock import Mock
 
+from qutebrowser.qt.core import QUrl
 from qutebrowser.qt.gui import QIcon, QPixmap
-from qutebrowser.mainwindow import tabwidget
-from qutebrowser.utils import usertypes
+from qutebrowser.mainwindow import tabwidget, tiling
+from qutebrowser.utils import urlmatch, usertypes
 
 
 class TestTabWidget:
@@ -212,3 +213,106 @@ class TestTabWidget:
         widget.addTab(fake_web_tab(), 'foobar')
         tab_bar = widget.tabBar()
         benchmark(functools.partial(tab_bar._tab_pinned, 0))
+
+
+class TestTagRules:
+
+    """place_new_tab/apply_tag_rule: dwm-style URL-to-tag rules."""
+
+    @pytest.fixture
+    def widget(self, qtbot, config_stub):
+        """A tab widget with a sane tiling setup for the rule tests."""
+        config_stub.val.tabs.tiling.max_per_tag = 0
+        w = tabwidget.TabWidget(0)
+        qtbot.add_widget(w)
+        w.show()
+        return w
+
+    def test_rule_places_tab_on_rule_tag(self, widget, fake_web_tab,
+                                         config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 4,
+                            pattern=urlmatch.UrlPattern('*.youtube.com'))
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.place_new_tab(tab, url=QUrl('https://www.youtube.com/watch'))
+        assert tab.data.tags == tiling.tag_mask(4)
+        # follow defaults to True: the view goes with the tab.
+        assert widget.tiles.seltags == tiling.tag_mask(4)
+        assert tab.data.tag_rule_done
+
+    def test_rule_not_followed_keeps_view(self, widget, fake_web_tab,
+                                          config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 4,
+                            pattern=urlmatch.UrlPattern('*.youtube.com'))
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.place_new_tab(tab, url=QUrl('https://www.youtube.com/watch'),
+                             follow=False)
+        assert tab.data.tags == tiling.tag_mask(4)
+        assert widget.tiles.seltags == 0b1
+
+    def test_no_rule_keeps_viewed_tag(self, widget, fake_web_tab):
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.place_new_tab(tab, url=QUrl('https://example.com/'))
+        assert tab.data.tags == 0b1
+        assert tab.data.tag_rule_done
+
+    def test_full_rule_tag_spills(self, widget, fake_web_tab, config_stub):
+        config_stub.val.tabs.tiling.max_per_tag = 1
+        config_stub.set_obj('tabs.tiling.rule_tag', 4,
+                            pattern=urlmatch.UrlPattern('*.youtube.com'))
+        first = fake_web_tab()
+        widget.insertTab(0, first, '')
+        first.data.tags = tiling.tag_mask(4)
+        widget.tiles.set_tabs([first])
+
+        tab = fake_web_tab()
+        widget.insertTab(1, tab, '')
+        widget.place_new_tab(tab, url=QUrl('https://www.youtube.com/watch'))
+        assert tab.data.tags == tiling.tag_mask(5)
+
+    def test_apply_tag_rule_moves_tab(self, widget, fake_web_tab,
+                                      config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 7,
+                            pattern=urlmatch.UrlPattern('*.youtube.com'))
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.tiles.set_tabs([tab])
+        widget.setCurrentWidget(tab)
+        assert tab.data.tags == 0b1
+
+        widget.apply_tag_rule(tab, QUrl('https://www.youtube.com/watch'),
+                              follow=False)
+        assert tab.data.tags == tiling.tag_mask(7)
+        assert tab.data.tag_rule_done
+        # follow=False: the tab goes, the view stays.
+        assert widget.tiles.seltags == 0b1
+
+    def test_apply_tag_rule_fires_once(self, widget, fake_web_tab,
+                                       config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 7,
+                            pattern=urlmatch.UrlPattern('*.youtube.com'))
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.tiles.set_tabs([tab])
+
+        widget.apply_tag_rule(tab, QUrl('https://www.youtube.com/watch'),
+                              follow=False)
+        assert tab.data.tags == tiling.tag_mask(7)
+        # A later navigation never moves the tab again.
+        tab.data.tags = 0b1
+        widget.apply_tag_rule(tab, QUrl('https://www.youtube.com/other'),
+                              follow=False)
+        assert tab.data.tags == 0b1
+
+    def test_apply_tag_rule_ignores_internal_urls(self, widget, fake_web_tab,
+                                                  config_stub):
+        config_stub.set_obj('tabs.tiling.rule_tag', 6)
+        tab = fake_web_tab()
+        widget.insertTab(0, tab, '')
+        widget.tiles.set_tabs([tab])
+
+        widget.apply_tag_rule(tab, QUrl('qute://settings/'), follow=False)
+        assert tab.data.tags == 0b1
+        assert not tab.data.tag_rule_done
