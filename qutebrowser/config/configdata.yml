@@ -4189,7 +4189,10 @@ bindings.default:
       '9': tag-view 9
       '0': tag-view all
       <Tab>: tag-view prev
-      f: tile-layout toggle
+      z: tile-layout toggle
+      f: hint
+      F: hint all tab
+      gi: hint inputs --first
       j: tile-focus next
       k: tile-focus prev
       <Return>: tile-zoom
@@ -4213,21 +4216,8 @@ bindings.default:
       L: forward
       +: zoom-in
       '-': zoom-out
-      T: mode-enter bitwise
+      T: cmd-set-text -s :tab-select
       r: cmd-set-text --space :tag-rename
-      <Escape>: mode-leave
-    bitwise:
-      '1': tag-toggle-view 1
-      '2': tag-toggle-view 2
-      '3': tag-toggle-view 3
-      '4': tag-toggle-view 4
-      '5': tag-toggle-view 5
-      '6': tag-toggle-view 6
-      '7': tag-toggle-view 7
-      '8': tag-toggle-view 8
-      '9': tag-toggle-view 9
-      '0': tag-view all
-      <Return>: mode-enter tile
       <Escape>: mode-leave
     register:
       <Escape>: mode-leave
@@ -4236,7 +4226,7 @@ bindings.default:
     none_ok: true
     keytype: String  # section name
     fixed_keys: ['normal', 'insert', 'hint', 'passthrough', 'command',
-                 'prompt', 'yesno', 'caret', 'tile', 'bitwise', 'register']
+                 'prompt', 'yesno', 'caret', 'tile', 'register']
     valtype:
       name: Dict
       none_ok: true
@@ -4260,7 +4250,7 @@ bindings.commands:
     none_ok: true
     keytype: String  # section name
     fixed_keys: ['normal', 'insert', 'hint', 'passthrough', 'command',
-                 'prompt', 'yesno', 'caret', 'tile', 'bitwise', 'register']
+                 'prompt', 'yesno', 'caret', 'tile', 'register']
     valtype:
       name: Dict
       none_ok: true
@@ -4335,16 +4325,15 @@ bindings.commands:
     * caret: Entered when pressing the `v` mode, used to select text using the
       keyboard.
 
-    * tile: dwm-style tag and tiling keys (`:mode-enter tile`): digits view a
-      tag, `0` views all, `f` toggles tile/monocle, `j`/`k` move through the
-      visible tiles, `h`/`l` resize the master, `I`/`D` change the master
-      count, `T` enters bitwise mode. It doubles as normal mode for moving
-      around: arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to
-      the top/bottom, `H`/`L` go back/forward in history, `+`/`-` zoom.
-
-    * bitwise: Entered with `T` from tile mode to compose the viewed tagset:
-      each digit toggles that tag in the view, `<Return>` goes back to tile
-      mode.
+    * tile: normal mode with dwm-style tag and tiling keys
+      (`:mode-enter tile`): digits view a tag, `0` views all, `z` toggles
+      tile/monocle, `j`/`k` move through the visible tiles, `h`/`l` resize
+      the master, `I`/`D` change the master count, `T` picks a tab from a
+      list. It doubles as normal mode for moving around: `f`/`F`/`gi` hint,
+      arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to the
+      top/bottom, `H`/`L` go back/forward in history, `+`/`-` zoom. A mode
+      entered from tile mode (hints, the command line, insert, prompts)
+      returns to tile mode when it is left.
 
     * register: Entered when qutebrowser is waiting for a register name/key for
       commands like `:set-mark`.

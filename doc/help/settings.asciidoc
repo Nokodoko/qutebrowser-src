@@ -485,16 +485,15 @@ The following modes are available:
 * caret: Entered when pressing the `v` mode, used to select text using the
   keyboard.
 
-* tile: dwm-style tag and tiling keys (`:mode-enter tile`): digits view a
-  tag, `0` views all, `f` toggles tile/monocle, `j`/`k` move through the
-  visible tiles, `h`/`l` resize the master, `I`/`D` change the master
-  count, `T` enters bitwise mode. It doubles as normal mode for moving
-  around: arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to
-  the top/bottom, `H`/`L` go back/forward in history, `+`/`-` zoom.
-
-* bitwise: Entered with `T` from tile mode to compose the viewed tagset:
-  each digit toggles that tag in the view, `<Return>` goes back to tile
-  mode.
+* tile: normal mode with dwm-style tag and tiling keys
+  (`:mode-enter tile`): digits view a tag, `0` views all, `z` toggles
+  tile/monocle, `j`/`k` move through the visible tiles, `h`/`l` resize
+  the master, `I`/`D` change the master count, `T` picks a tab from a
+  list. It doubles as normal mode for moving around: `f`/`F`/`gi` hint,
+  arrows, `u`/`d`, `<PgUp>`/`<PgDown>` scroll, `gg`/`G` jump to the
+  top/bottom, `H`/`L` go back/forward in history, `+`/`-` zoom. A mode
+  entered from tile mode (hints, the command line, insert, prompts)
+  returns to tile mode when it is left.
 
 * register: Entered when qutebrowser is waiting for a register name/key for
   commands like `:set-mark`.
@@ -515,20 +514,6 @@ Type: <<types,Dict>>
 
 Default: 
 
-- +pass:[bitwise]+:
-
-* +pass:[0]+: +pass:[tag-view all]+
-* +pass:[1]+: +pass:[tag-toggle-view 1]+
-* +pass:[2]+: +pass:[tag-toggle-view 2]+
-* +pass:[3]+: +pass:[tag-toggle-view 3]+
-* +pass:[4]+: +pass:[tag-toggle-view 4]+
-* +pass:[5]+: +pass:[tag-toggle-view 5]+
-* +pass:[6]+: +pass:[tag-toggle-view 6]+
-* +pass:[7]+: +pass:[tag-toggle-view 7]+
-* +pass:[8]+: +pass:[tag-toggle-view 8]+
-* +pass:[9]+: +pass:[tag-toggle-view 9]+
-* +pass:[&lt;Escape&gt;]+: +pass:[mode-leave]+
-* +pass:[&lt;Return&gt;]+: +pass:[mode-enter tile]+
 - +pass:[caret]+:
 
 * +pass:[$]+: +pass:[move-to-end-of-line]+
@@ -858,20 +843,23 @@ Default:
 * +pass:[&lt;Tab&gt;]+: +pass:[tag-view prev]+
 * +pass:[&lt;Up&gt;]+: +pass:[scroll up]+
 * +pass:[D]+: +pass:[tile-nmaster -1]+
+* +pass:[F]+: +pass:[hint all tab]+
 * +pass:[G]+: +pass:[scroll-to-perc]+
 * +pass:[H]+: +pass:[back]+
 * +pass:[I]+: +pass:[tile-nmaster +1]+
 * +pass:[L]+: +pass:[forward]+
-* +pass:[T]+: +pass:[mode-enter bitwise]+
+* +pass:[T]+: +pass:[cmd-set-text -s :tab-select]+
 * +pass:[d]+: +pass:[scroll-page 0 0.5]+
-* +pass:[f]+: +pass:[tile-layout toggle]+
+* +pass:[f]+: +pass:[hint]+
 * +pass:[gg]+: +pass:[scroll-to-perc 0]+
+* +pass:[gi]+: +pass:[hint inputs --first]+
 * +pass:[h]+: +pass:[tile-mfact -0.05]+
 * +pass:[j]+: +pass:[tile-focus next]+
 * +pass:[k]+: +pass:[tile-focus prev]+
 * +pass:[l]+: +pass:[tile-mfact +0.05]+
 * +pass:[r]+: +pass:[cmd-set-text --space :tag-rename]+
 * +pass:[u]+: +pass:[scroll-page 0 -0.5]+
+* +pass:[z]+: +pass:[tile-layout toggle]+
 - +pass:[yesno]+:
 
 * +pass:[&lt;Alt-Shift-Y&gt;]+: +pass:[prompt-yank --sel]+

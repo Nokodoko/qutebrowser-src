@@ -22,7 +22,7 @@ from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
 # The segment label of a mode whose name is not its label.
 _SEGMENT_MODE_LABELS = {'passthrough': 'ENGAGE'}
 #: Modes that announce themselves in the bar although keys are not passed on.
-_TILING_MODES = (usertypes.KeyMode.tile, usertypes.KeyMode.bitwise)
+_TILING_MODES = (usertypes.KeyMode.tile,)
 
 
 @dataclasses.dataclass

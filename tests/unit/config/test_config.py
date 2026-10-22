@@ -124,7 +124,6 @@ class TestKeyConfig:
             'prompt': {},
             'caret': {},
             'tile': {},
-            'bitwise': {},
             'register': {},
             'yesno': {}
         }
@@ -138,7 +137,6 @@ class TestKeyConfig:
             'prompt': {},
             'caret': {},
             'tile': {},
-            'bitwise': {},
             'register': {},
             'yesno': {}
         }

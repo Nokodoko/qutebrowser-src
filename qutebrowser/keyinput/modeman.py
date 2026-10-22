@@ -23,6 +23,9 @@ from qutebrowser.misc import objects
 
 INPUT_MODES = [usertypes.KeyMode.insert, usertypes.KeyMode.passthrough]
 PROMPT_MODES = [usertypes.KeyMode.prompt, usertypes.KeyMode.yesno]
+#: Modes that end a detour from tile mode instead of being one: entering
+#: them forgets that leaving should return to tile mode.
+NOT_TILE_DETOURS = [usertypes.KeyMode.tile, usertypes.KeyMode.passthrough]
 
 # FIXME:mypy TypedDict?
 ParserDictType: TypeAlias = MutableMapping[usertypes.KeyMode, basekeyparser.BaseKeyParser]
@@ -158,14 +161,6 @@ def init(win_id: int, parent: QObject) -> 'ModeManager':
                 parent=modeman,
                 supports_count=False),
 
-        usertypes.KeyMode.bitwise:
-            modeparsers.CommandKeyParser(
-                mode=usertypes.KeyMode.bitwise,
-                win_id=win_id,
-                commandrunner=commandrunner,
-                parent=modeman,
-                supports_count=False),
-
         usertypes.KeyMode.set_mark:
             modeparsers.RegisterKeyParser(
                 mode=usertypes.KeyMode.set_mark,
@@ -268,6 +263,10 @@ class ModeManager(QObject):
         self._win_id = win_id
         self.parsers: ParserDictType = {}
         self._prev_mode = usertypes.KeyMode.normal
+        #: Whether leaving the current mode returns to tile mode: tile mode
+        #: is a normal mode with tab navigation, so hints, the command line,
+        #: insert, prompts etc. entered from it come back to it.
+        self._return_to_tile = False
         self.mode = usertypes.KeyMode.normal
         self._releaseevents_to_pass: set[KeyEvent] = set()
         # Set after __init__
@@ -384,7 +383,9 @@ class ModeManager(QObject):
                             "already.".format(self.mode))
             return
         if self.mode != usertypes.KeyMode.normal:
-            if only_if_normal:
+            # Tile mode stands in for normal mode: clicking or loading into
+            # a text field enters insert from it too.
+            if only_if_normal and self.mode != usertypes.KeyMode.tile:
                 log.modes.debug("Ignoring request as we're in mode {} "
                                 "and only_if_normal is set..".format(
                                     self.mode))
@@ -396,6 +397,13 @@ class ModeManager(QObject):
             self._prev_mode = self.mode
         else:
             self._prev_mode = usertypes.KeyMode.normal
+
+        if mode in NOT_TILE_DETOURS:
+            self._return_to_tile = False
+        elif self.mode == usertypes.KeyMode.tile:
+            self._return_to_tile = True
+        # Otherwise a detour into another detour (hint -> insert, command ->
+        # prompt, a prompt restoring insert) keeps the flag.
 
         self.mode = mode
         self.entered.emit(mode, self._win_id)
@@ -449,7 +457,16 @@ class ModeManager(QObject):
         self.clear_keychain()
         self.mode = usertypes.KeyMode.normal
         self.left.emit(mode, self.mode, self._win_id)
-        if mode in PROMPT_MODES:
+        if mode in PROMPT_MODES and self._prev_mode in INPUT_MODES:
+            # Keeps _return_to_tile: the restored input mode is still part of
+            # a detour from tile, if there was one.
+            self.enter(self._prev_mode,
+                       reason='restore mode before {}'.format(mode.name))
+        elif self._return_to_tile:
+            self._return_to_tile = False
+            self.enter(usertypes.KeyMode.tile,
+                       reason='restore tile after {}'.format(mode.name))
+        elif mode in PROMPT_MODES:
             self.enter(self._prev_mode,
                        reason='restore mode before {}'.format(mode.name))
 
