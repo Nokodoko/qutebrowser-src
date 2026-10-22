@@ -109,7 +109,14 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
                                     window=int(win_id))
         tabbed_browser.on_tab_close_requested(int(tab_index) - 1)
 
-    model = completionmodel.CompletionModel(column_widths=(6, 40, 46, 8))
+    if config.val.completion.tab_preview:
+        # The preview pane takes the right side and shows title, URL and the
+        # page itself, so the narrower list drops the PID column.
+        column_widths = (8, 36, 56, 0)
+    else:
+        column_widths = (6, 40, 46, 8)
+    model = completionmodel.CompletionModel(column_widths=column_widths,
+                                            tab_preview=True)
 
     tabs_are_windows = config.val.tabs.tabs_are_windows
     # list storing all single-tabbed windows when tabs_are_windows

@@ -14,9 +14,9 @@ from qutebrowser.qt.widgets import QTreeView, QSizePolicy, QStyleFactory, QWidge
 from qutebrowser.qt.core import pyqtSlot, pyqtSignal, Qt, QItemSelectionModel, QSize
 
 from qutebrowser.config import config, stylesheet
-from qutebrowser.completion import completiondelegate
+from qutebrowser.completion import completiondelegate, tabpreview
 from qutebrowser.completion.models import completionmodel
-from qutebrowser.utils import utils, usertypes, debug, log, qtutils
+from qutebrowser.utils import utils, usertypes, debug, log, qtutils, objreg
 from qutebrowser.api import cmdutils
 if TYPE_CHECKING:
     from qutebrowser.mainwindow.statusbar import command
@@ -38,6 +38,8 @@ class CompletionView(QTreeView):
         _column_widths: A list of column widths, in percent.
         _active: Whether a selection is active.
         _cmd: The statusbar Command object.
+        _preview: The ivy-style pane previewing the tab under the cursor.
+        _previewing: Whether the current model gets the preview pane.
 
     Signals:
         update_geometry: Emitted when the completion should be resized.
@@ -105,6 +107,8 @@ class CompletionView(QTreeView):
         self._win_id = win_id
         self._cmd = cmd
         self._active = False
+        self._previewing = False
+        self._preview = tabpreview.TabPreview(self)
 
         config.instance.changed.connect(self._on_config_changed)
 
@@ -157,17 +161,75 @@ class CompletionView(QTreeView):
         if option in ['completion.height', 'completion.shrink']:
             self.update_geometry.emit()
 
+    # ---- ivy-style tab preview -----------------------------------------
+
+    #: Share of the completion width the preview pane takes.
+    PREVIEW_PERC = 45
+
+    def _set_previewing(self, on: bool) -> None:
+        """Split the completion into list and preview pane, or undo it."""
+        self._previewing = on
+        # Telescope's ivy has no scrollbar, and ours would sit under the pane.
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff if on
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._place_preview()
+        if not on:
+            self._preview.clear()
+
+    def _place_preview(self) -> None:
+        if not self._previewing:
+            self.setViewportMargins(0, 0, 0, 0)
+            self._preview.hide()
+            return
+        width = self.width() * self.PREVIEW_PERC // 100
+        self.setViewportMargins(0, 0, width, 0)
+        self._preview.setGeometry(self.width() - width, 0,
+                                  width, self.height())
+        self._preview.show()
+        self._preview.raise_()
+
+    def _tab_for(self, data: str):
+        """The tab behind a tab completion's [win_id/]index, or None."""
+        win_id, _sep, index = data.rpartition('/')
+        try:
+            win = int(win_id) if win_id else self._win_id
+            idx = int(index) - 1
+            tabbed_browser = objreg.get('tabbed-browser', scope='window',
+                                        window=win)
+        except (ValueError, KeyError, objreg.RegistryUnavailableError):
+            return None
+        if not 0 <= idx < tabbed_browser.widget.count():
+            return None
+        return tabbed_browser.widget.widget(idx)
+
+    def _update_preview(self) -> None:
+        """Preview the selected item, or the first one like telescope."""
+        if not self._previewing or not self.isVisible():
+            return
+        model = self._model()
+        idx = self._selection_model().currentIndex()
+        if not idx.isValid() or not idx.parent().isValid():
+            idx = model.first_item()
+        if not idx.isValid():
+            self._preview.clear()
+            return
+        data = model.data(idx.sibling(idx.row(), 0))
+        tab = self._tab_for(str(data))
+        if tab is not self._preview.current_tab():
+            self._preview.set_tab(tab)
+
     def _resize_columns(self):
         """Resize the completion columns based on column_widths."""
         if self.model() is None:
             return
-        width = self.size().width()
+        width = self.viewport().width()
         column_widths = self._model().column_widths
         pixel_widths = [(width * perc // 100) for perc in column_widths]
 
         bar = self.verticalScrollBar()
         assert bar is not None
-        delta = bar.sizeHint().width()
+        delta = 0 if self._previewing else bar.sizeHint().width()
         for i, width in reversed(list(enumerate(pixel_widths))):
             if width > delta:
                 pixel_widths[i] -= delta
@@ -367,6 +429,7 @@ class CompletionView(QTreeView):
 
         if model is None:
             self._active = False
+            self._set_previewing(False)
             self.hide()
             return
 
@@ -374,11 +437,14 @@ class CompletionView(QTreeView):
         model.setParent(self)
         self._active = True
         self.pattern = None
+        self._set_previewing(model.tab_preview and
+                             config.val.completion.tab_preview)
         self._maybe_show()
 
         self._resize_columns()
         for i in range(model.rowCount()):
             self.expand(model.index(i, 0))
+        self._update_preview()
 
     def set_pattern(self, pattern: str) -> None:
         """Set the pattern on the underlying model."""
@@ -395,6 +461,7 @@ class CompletionView(QTreeView):
             self._selection_model().clear()
             self._maybe_update_geometry()
             self._maybe_show()
+            self._update_preview()
 
     def _maybe_show(self):
         if (config.val.completion.show == 'always' and
@@ -449,10 +516,12 @@ class CompletionView(QTreeView):
             return
         data = str(self._model().data(indexes[0]))
         self.selection_changed.emit(data)
+        self._update_preview()
 
     def resizeEvent(self, e):
         """Extend resizeEvent to adjust column size."""
         super().resizeEvent(e)
+        self._place_preview()
         self._resize_columns()
 
     def showEvent(self, e):
@@ -462,6 +531,12 @@ class CompletionView(QTreeView):
         if scrollbar is not None:
             scrollbar.setValue(scrollbar.minimum())
         super().showEvent(e)
+        self._update_preview()
+
+    def hideEvent(self, e):
+        """Drop the previewed tab so a closed tab is not kept around."""
+        super().hideEvent(e)
+        self._preview.clear()
 
     @cmdutils.register(instance='completion',
                        modes=[usertypes.KeyMode.command], scope='window')

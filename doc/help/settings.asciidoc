@@ -142,6 +142,7 @@
 |<<completion.scrollbar.width,completion.scrollbar.width>>|Width (in pixels) of the scrollbar in the completion window.
 |<<completion.show,completion.show>>|When to show the autocompletion window.
 |<<completion.shrink,completion.shrink>>|Shrink the completion to be smaller than the configured size if there are no scrollbars.
+|<<completion.tab_preview,completion.tab_preview>>|Show a preview pane next to tab completions, as in `:tab-select`.
 |<<completion.timestamp_format,completion.timestamp_format>>|Format of timestamps (e.g. for the history completion).
 |<<completion.use_best_match,completion.use_best_match>>|Execute the best-matching command on a partial match.
 |<<completion.web_history.exclude,completion.web_history.exclude>>|A list of patterns which should not be shown in the history.
@@ -2027,6 +2028,15 @@ Shrink the completion to be smaller than the configured size if there are no scr
 Type: <<types,Bool>>
 
 Default: +pass:[false]+
+
+[[completion.tab_preview]]
+=== completion.tab_preview
+Show a preview pane next to tab completions, as in `:tab-select`.
+The pane shows the title, URL and a picture of the tab under the cursor, or of the first match while nothing is selected. Tabs on screen are pictured live; hidden tabs show how they looked when they were last hidden, or nothing if they were never shown.
+
+Type: <<types,Bool>>
+
+Default: +pass:[true]+
 
 [[completion.timestamp_format]]
 === completion.timestamp_format

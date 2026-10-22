@@ -24,6 +24,7 @@ from qutebrowser.qt.gui import QPainter, QPaintEvent
 from qutebrowser.qt.widgets import QWidget
 
 from qutebrowser.config import config
+from qutebrowser.completion import tabpreview
 from qutebrowser.utils import log
 
 #: Number of tags; dwm uses nine as well.
@@ -520,6 +521,8 @@ class TileArea(QWidget):
                 tab.show()
         for tab in self._tabs:
             if tab not in shown and tab.isVisible():
+                # Last chance to picture it: a hidden webview cannot paint.
+                tabpreview.capture(tab)
                 tab.hide()
         if current in shown:
             current.raise_()

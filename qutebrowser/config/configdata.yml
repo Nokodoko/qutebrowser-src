@@ -1385,6 +1385,17 @@ completion.shrink:
   desc: Shrink the completion to be smaller than the configured size if
     there are no scrollbars.
 
+completion.tab_preview:
+  default: true
+  type: Bool
+  desc: >-
+    Show a preview pane next to tab completions, as in `:tab-select`.
+
+    The pane shows the title, URL and a picture of the tab under the cursor,
+    or of the first match while nothing is selected. Tabs on screen are
+    pictured live; hidden tabs show how they looked when they were last
+    hidden, or nothing if they were never shown.
+
 completion.scrollbar.width:
   default: 12
   type:
