@@ -77,9 +77,9 @@ class CompletionItemDelegate(QStyledItemDelegate):
         self._index = None
         super().__init__(parent)
 
-    def _ivy(self) -> bool:
-        """Whether the view is in the ivy tab picker layout."""
-        return getattr(self.parent(), 'ivy', False)
+    def _glass(self) -> bool:
+        """Whether the view paints the glass chrome (and its own rows)."""
+        return getattr(self.parent(), 'glass', False)
 
     def _draw_background(self):
         """Draw the background of an ItemViewItem."""
@@ -137,7 +137,7 @@ class CompletionItemDelegate(QStyledItemDelegate):
             text_rect.adjust(0, -1, 0, -1)
         else:
             text_rect.adjust(0, -2, 0, -2)
-        if self._ivy():
+        if self._glass():
             # Center the text in the taller pill row (see sizeHint).
             text_rect.adjust(4, 4, 0, 4)
         self._painter.save()
@@ -181,14 +181,15 @@ class CompletionItemDelegate(QStyledItemDelegate):
         clip = QRectF(0, 0, rect.width(), rect.height())
         self._painter.save()
 
-        if self._ivy():
-            # Tab picker: the title stands out, index and URL recede.
-            ivy = config.val.colors.completion.ivy
-            selected = self.parent().row_selected(self._index)
-            if col == 2:
-                color = ivy.selected.fg if selected else ivy.fg
+        if self._glass():
+            # The item's main column stands out, the others recede.
+            colors = config.val.colors.glass
+            view = self.parent()
+            selected = view.row_selected(self._index)
+            if col == view.primary_column():
+                color = colors.selected.fg if selected else colors.fg
             else:
-                color = ivy.dim.fg
+                color = colors.dim.fg
         elif self._opt.state & QStyle.StateFlag.State_Selected:
             color = config.cache['colors.completion.item.selected.fg']
         elif not self._opt.state & QStyle.StateFlag.State_Enabled:
@@ -239,8 +240,8 @@ class CompletionItemDelegate(QStyledItemDelegate):
             pattern = view.pattern
             columns_to_filter = index.model().columns_to_filter(index)
             if index.column() in columns_to_filter and pattern:
-                if self._ivy():
-                    color = config.val.colors.completion.ivy.match.fg
+                if self._glass():
+                    color = config.val.colors.glass.match.fg
                 elif self._opt.state & QStyle.StateFlag.State_Selected:
                     color = config.val.colors.completion.item.selected.match.fg
                 else:
@@ -306,7 +307,7 @@ class CompletionItemDelegate(QStyledItemDelegate):
                                             docsize, self._opt.widget)
         qtutils.ensure_valid(size)
         # The tab picker's rows are pills and get room to breathe.
-        return size + QSize(10, 11 if self._ivy() else 3)
+        return size + QSize(10, 11 if self._glass() else 3)
 
     def paint(self, painter, option, index):
         """Override the QStyledItemDelegate paint function.
@@ -323,7 +324,7 @@ class CompletionItemDelegate(QStyledItemDelegate):
         self.initStyleOption(self._opt, index)
         self._style = self._opt.widget.style()
 
-        if not self._ivy():
+        if not self._glass():
             # The tab picker's view paints the row itself (drawRow).
             self._draw_background()
         self._draw_icon()

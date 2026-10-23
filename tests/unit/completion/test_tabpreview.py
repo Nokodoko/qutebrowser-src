@@ -5,8 +5,7 @@
 """Tests for the ivy-style tab preview of the completion."""
 
 import pytest
-from qutebrowser.qt.core import QUrl, Qt
-from qutebrowser.qt.gui import QColor, QPainter, QPixmap
+from qutebrowser.qt.core import QUrl
 
 from qutebrowser.completion import completionwidget, tabpreview
 from qutebrowser.completion.models import completionmodel, listcategory
@@ -75,19 +74,6 @@ def test_capture_respects_setting(qtbot, fake_web_tab, config_stub):
     assert tabpreview.snapshot(tab) is None
 
 
-def test_blur_keeps_size_and_softens(qapp):
-    pixmap = QPixmap(200, 100)
-    pixmap.fill(Qt.GlobalColor.black)
-    painter = QPainter(pixmap)
-    painter.fillRect(0, 0, 100, 100, Qt.GlobalColor.white)
-    painter.end()
-    frosted = tabpreview.blur(pixmap, 24)
-    assert frosted.size() == pixmap.size()
-    edge = QColor(frosted.toImage().pixel(100, 50))
-    assert 0 < edge.value() < 255
-    assert tabpreview.blur(pixmap, 0) is pixmap
-
-
 def test_hidden_tab_without_capture(fake_web_tab, qtbot):
     tab = fake_web_tab()
     qtbot.add_widget(tab)
@@ -110,7 +96,7 @@ def test_preview_follows_first_item_and_selection(completionview, tabs):
     completionview.show()
     preview = completionview._preview
     assert preview.isVisible()
-    assert completionview.ivy
+    assert completionview.previewing
     # The list sits inside the result card, left of the 45% preview pane.
     viewport = completionview.viewport().geometry()
     assert preview.geometry().left() == 1000 - 450
@@ -132,8 +118,23 @@ def test_no_preview_for_other_models(completionview, tabs):
     completionview.set_model(model)
     completionview.show()
     assert not completionview._preview.isVisible()
-    assert not completionview.ivy
+    assert not completionview.previewing
+    # Still glass: one full-width card around the list.
+    assert completionview.glass
+    viewport = completionview.viewport().geometry()
+    assert 0 < viewport.left() and 1000 - 30 < viewport.right() < 1000
+
+
+def test_stock_look_without_glass(completionview, tabs, config_stub):
+    config_stub.val.glass.enabled = False
+    completionview.set_model(_tab_model([('0/1', 'https://a.example/',
+                                          'a', '')]))
+    completionview.show()
+    assert not completionview.glass
+    assert not completionview.previewing
+    assert not completionview._backdrop.isVisible()
     assert completionview.viewportMargins().right() == 0
+    assert completionview.alternatingRowColors()
 
 
 def test_title_column_moves_back(completionview, tabs):

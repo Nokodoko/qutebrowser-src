@@ -17,12 +17,13 @@ from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, Qt, QTimer, QDir, QModelI
 from qutebrowser.qt.widgets import (QWidget, QGridLayout, QVBoxLayout, QLineEdit,
                              QLabel, QTreeView, QSizePolicy,
                              QSpacerItem, QFileIconProvider)
-from qutebrowser.qt.gui import (QFileSystemModel, QIcon)
+from qutebrowser.qt.gui import (QFileSystemModel, QIcon, QPainter)
 
 from qutebrowser.browser import downloads
 from qutebrowser.config import config, configtypes, configexc, stylesheet
 from qutebrowser.utils import usertypes, log, utils, qtutils, objreg, message
 from qutebrowser.keyinput import modeman
+from qutebrowser.mainwindow import glass
 from qutebrowser.api import cmdutils
 from qutebrowser.utils import urlmatch, urlutils
 
@@ -226,6 +227,49 @@ class PromptContainer(QWidget):
     """
 
     STYLESHEET = """
+        {% if conf.glass.enabled %}
+        /* The container paints a frosted card (paintEvent); everything in
+           it is transparent, inputs and lists are outlined. */
+        QWidget {
+            font: {{ conf.fonts.prompts }};
+            color: {{ qcolor_to_qsscolor(conf.colors.glass.fg) }};
+            background: transparent;
+        }
+
+        QLineEdit {
+            border: 1px solid {{ qcolor_to_qsscolor(conf.colors.glass.border) }};
+            border-radius: 6px;
+            padding: 4px 8px;
+            selection-color: {{ qcolor_to_qsscolor(conf.colors.glass.selected.fg) }};
+            selection-background-color:
+                {{ qcolor_to_qsscolor(conf.colors.glass.selected.bg) }};
+        }
+
+        QTreeView {
+            border: 1px solid {{ qcolor_to_qsscolor(conf.colors.glass.border) }};
+            border-radius: 6px;
+            padding: 4px;
+            selection-color: {{ qcolor_to_qsscolor(conf.colors.glass.selected.fg) }};
+            selection-background-color:
+                {{ qcolor_to_qsscolor(conf.colors.glass.selected.bg) }};
+        }
+
+        QTreeView::branch {
+            background: transparent;
+        }
+
+        QTreeView::item {
+            padding: 2px 4px;
+        }
+
+        QTreeView::item:selected, QTreeView::item:selected:hover,
+        QTreeView::branch:selected {
+            color: {{ qcolor_to_qsscolor(conf.colors.glass.selected.fg) }};
+            background-color:
+                {{ qcolor_to_qsscolor(conf.colors.glass.selected.bg) }};
+            border-radius: 4px;
+        }
+        {% else %}
         QWidget#PromptContainer {
             {% if conf.statusbar.position == 'top' %}
                 border-bottom-left-radius: {{ conf.prompt.radius }}px;
@@ -261,14 +305,20 @@ class PromptContainer(QWidget):
             color: {{ conf.colors.prompts.selected.fg }};
             background-color: {{ conf.colors.prompts.selected.bg }};
         }
+        {% endif %}
     """
+
+    #: Gap between the glass card and the container's edges.
+    _CARD_MARGIN = 6
     update_geometry = pyqtSignal()
     release_focus = pyqtSignal()
 
     def __init__(self, win_id, parent=None):
         super().__init__(parent)
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(10, 10, 10, 10)
+        self._set_margins()
+        self._frost = glass.Frost(self)
+        config.instance.changed.connect(self._on_config_changed)
         self._win_id = win_id
         self._prompt: _BasePrompt | None = None
 
@@ -282,6 +332,40 @@ class PromptContainer(QWidget):
 
     def __repr__(self):
         return utils.get_repr(self, win_id=self._win_id)
+
+    def _set_margins(self) -> None:
+        """Room for the glass card's inset and rounding, or the stock 10px."""
+        margin = 10 + (self._CARD_MARGIN + 6 if glass.enabled() else 0)
+        self._layout.setContentsMargins(margin, margin, margin, margin)
+
+    @pyqtSlot(str)
+    def _on_config_changed(self, option: str) -> None:
+        if option == 'glass.enabled':
+            self._set_margins()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._frost.refresh()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._frost.clear()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if glass.enabled() and self.isVisible():
+            self._frost.schedule()
+
+    def paintEvent(self, e):
+        """With glass, a floating frosted card under the prompt."""
+        if glass.enabled():
+            painter = QPainter(self)
+            margin = self._CARD_MARGIN
+            glass.paint_surface(
+                painter, self.rect().adjusted(margin, margin, -margin, -margin),
+                glass.Colors.from_config(), self._frost, radius=12)
+            painter.end()
+        super().paintEvent(e)
 
     @pyqtSlot(usertypes.Question)
     def _on_show_prompts(self, question):

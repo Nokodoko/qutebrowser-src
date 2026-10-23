@@ -29,17 +29,6 @@
 |<<colors.completion.item.selected.border.top,colors.completion.item.selected.border.top>>|Top border color of the selected completion item.
 |<<colors.completion.item.selected.fg,colors.completion.item.selected.fg>>|Foreground color of the selected completion item.
 |<<colors.completion.item.selected.match.fg,colors.completion.item.selected.match.fg>>|Foreground color of the matched text in the selected completion item.
-|<<colors.completion.ivy.accent,colors.completion.ivy.accent>>|Marker bar on the selected row in the tab picker.
-|<<colors.completion.ivy.bg,colors.completion.ivy.bg>>|Tint over the frosted page behind the tab picker's cards (`completion.tab_preview`).
-|<<colors.completion.ivy.border,colors.completion.ivy.border>>|Border of the tab picker's cards, chips and preview image.
-|<<colors.completion.ivy.card.bg,colors.completion.ivy.card.bg>>|Background of the tab picker's result and preview cards, painted over the panel tint.
-|<<colors.completion.ivy.dim.fg,colors.completion.ivy.dim.fg>>|Secondary text in the tab picker (URLs, tab indices, window headers, the match counter).
-|<<colors.completion.ivy.fg,colors.completion.ivy.fg>>|Tab titles in the tab picker.
-|<<colors.completion.ivy.match.fg,colors.completion.ivy.match.fg>>|Matched text in the tab picker.
-|<<colors.completion.ivy.selected.bg,colors.completion.ivy.selected.bg>>|Background of the selected row in the tab picker.
-|<<colors.completion.ivy.selected.fg,colors.completion.ivy.selected.fg>>|Text of the selected row in the tab picker.
-|<<colors.completion.ivy.title.bg,colors.completion.ivy.title.bg>>|Background of the title chips in the tab picker's card borders.
-|<<colors.completion.ivy.title.fg,colors.completion.ivy.title.fg>>|Text of the title chips in the tab picker's card borders.
 |<<colors.completion.match.fg,colors.completion.match.fg>>|Foreground color of the matched text in the completion.
 |<<colors.completion.odd.bg,colors.completion.odd.bg>>|Background color of the completion widget for odd rows.
 |<<colors.completion.scrollbar.bg,colors.completion.scrollbar.bg>>|Color of the scrollbar in the completion view.
@@ -59,6 +48,17 @@
 |<<colors.downloads.stop.fg,colors.downloads.stop.fg>>|Color gradient end for download text.
 |<<colors.downloads.system.bg,colors.downloads.system.bg>>|Color gradient interpolation system for download backgrounds.
 |<<colors.downloads.system.fg,colors.downloads.system.fg>>|Color gradient interpolation system for download text.
+|<<colors.glass.accent,colors.glass.accent>>|Marker bar on the selected completion row.
+|<<colors.glass.bg,colors.glass.bg>>|Tint over the frosted page behind the glass menus (`glass.enabled`).
+|<<colors.glass.border,colors.glass.border>>|Border of the glass cards, chips, inputs and the tab preview image.
+|<<colors.glass.card.bg,colors.glass.card.bg>>|Background of the glass cards (completion, keyhint, prompts, context menus), painted over the tint.
+|<<colors.glass.dim.fg,colors.glass.dim.fg>>|Secondary text in the glass menus (URLs, descriptions, category headers, the match counter, keyhint commands).
+|<<colors.glass.fg,colors.glass.fg>>|Text in the glass menus.
+|<<colors.glass.match.fg,colors.glass.match.fg>>|Matched text in the completion, and the keys left to press in the keyhint.
+|<<colors.glass.selected.bg,colors.glass.selected.bg>>|Background of the selected row or item in the glass menus.
+|<<colors.glass.selected.fg,colors.glass.selected.fg>>|Text of the selected row or item in the glass menus.
+|<<colors.glass.title.bg,colors.glass.title.bg>>|Background of the title chips in the glass cards' borders.
+|<<colors.glass.title.fg,colors.glass.title.fg>>|Text of the title chips in the glass cards' borders.
 |<<colors.hints.bg,colors.hints.bg>>|Background color for hints.
 |<<colors.hints.fg,colors.hints.fg>>|Font color for hints.
 |<<colors.hints.match.fg,colors.hints.match.fg>>|Font color for the matched part of hints.
@@ -146,7 +146,6 @@
 |<<completion.delay,completion.delay>>|Delay (in milliseconds) before updating completions after typing a character.
 |<<completion.favorite_paths,completion.favorite_paths>>|Default filesystem autocomplete suggestions for :open.
 |<<completion.height,completion.height>>|Height (in pixels or as percentage of the window) of the completion.
-|<<completion.ivy.blur,completion.ivy.blur>>|How frosted the glass behind the tab picker is, roughly a blur radius in pixels.
 |<<completion.min_chars,completion.min_chars>>|Minimum amount of characters needed to update completions.
 |<<completion.open_categories,completion.open_categories>>|Which categories to show (in which order) in the :open completion.
 |<<completion.quick,completion.quick>>|Move on to the next part when there's only one possible completion left.
@@ -269,6 +268,8 @@
 |<<fonts.web.size.default_fixed,fonts.web.size.default_fixed>>|Default font size (in pixels) for fixed-pitch text.
 |<<fonts.web.size.minimum,fonts.web.size.minimum>>|Hard minimum font size (in pixels).
 |<<fonts.web.size.minimum_logical,fonts.web.size.minimum_logical>>|Minimum logical font size (in pixels) that is applied when zooming out.
+|<<glass.blur,glass.blur>>|How frosted the glass behind the menus is, roughly a blur radius in pixels.
+|<<glass.enabled,glass.enabled>>|Draw qutebrowser's menus as frosted glass.
 |<<hints.auto_follow,hints.auto_follow>>|When a hint can be automatically followed without pressing Enter.
 |<<hints.auto_follow_timeout,hints.auto_follow_timeout>>|Duration (in milliseconds) to ignore normal-mode key bindings after a successful auto-follow.
 |<<hints.border,hints.border>>|CSS border value for hints.
@@ -1014,95 +1015,6 @@ Type: <<types,QtColor>>
 
 Default: +pass:[#ff4444]+
 
-[[colors.completion.ivy.accent]]
-=== colors.completion.ivy.accent
-Marker bar on the selected row in the tab picker.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#95C561]+
-
-[[colors.completion.ivy.bg]]
-=== colors.completion.ivy.bg
-Tint over the frosted page behind the tab picker's cards (`completion.tab_preview`).
-Its alpha sets how much of the page shows through; see `completion.ivy.blur` for how frosted it is.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[rgba(17, 18, 29, 40%)]+
-
-[[colors.completion.ivy.border]]
-=== colors.completion.ivy.border
-Border of the tab picker's cards, chips and preview image.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[rgba(160, 168, 205, 22%)]+
-
-[[colors.completion.ivy.card.bg]]
-=== colors.completion.ivy.card.bg
-Background of the tab picker's result and preview cards, painted over the panel tint.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[rgba(26, 27, 42, 60%)]+
-
-[[colors.completion.ivy.dim.fg]]
-=== colors.completion.ivy.dim.fg
-Secondary text in the tab picker (URLs, tab indices, window headers, the match counter).
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#8A90B0]+
-
-[[colors.completion.ivy.fg]]
-=== colors.completion.ivy.fg
-Tab titles in the tab picker.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#A0A8CD]+
-
-[[colors.completion.ivy.match.fg]]
-=== colors.completion.ivy.match.fg
-Matched text in the tab picker.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#D7A65F]+
-
-[[colors.completion.ivy.selected.bg]]
-=== colors.completion.ivy.selected.bg
-Background of the selected row in the tab picker.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[rgba(53, 57, 82, 80%)]+
-
-[[colors.completion.ivy.selected.fg]]
-=== colors.completion.ivy.selected.fg
-Text of the selected row in the tab picker.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#E4E7F7]+
-
-[[colors.completion.ivy.title.bg]]
-=== colors.completion.ivy.title.bg
-Background of the title chips in the tab picker's card borders.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#7199EE]+
-
-[[colors.completion.ivy.title.fg]]
-=== colors.completion.ivy.title.fg
-Text of the title chips in the tab picker's card borders.
-
-Type: <<types,QtColor>>
-
-Default: +pass:[#11121D]+
-
 [[colors.completion.match.fg]]
 === colors.completion.match.fg
 Foreground color of the matched text in the completion.
@@ -1274,6 +1186,95 @@ Valid values:
  * +none+: Don't show a gradient.
 
 Default: +pass:[rgb]+
+
+[[colors.glass.accent]]
+=== colors.glass.accent
+Marker bar on the selected completion row.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#95C561]+
+
+[[colors.glass.bg]]
+=== colors.glass.bg
+Tint over the frosted page behind the glass menus (`glass.enabled`).
+Its alpha sets how much of the page shows through; see `glass.blur` for how frosted it is.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[rgba(17, 18, 29, 40%)]+
+
+[[colors.glass.border]]
+=== colors.glass.border
+Border of the glass cards, chips, inputs and the tab preview image.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[rgba(160, 168, 205, 22%)]+
+
+[[colors.glass.card.bg]]
+=== colors.glass.card.bg
+Background of the glass cards (completion, keyhint, prompts, context menus), painted over the tint.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[rgba(26, 27, 42, 60%)]+
+
+[[colors.glass.dim.fg]]
+=== colors.glass.dim.fg
+Secondary text in the glass menus (URLs, descriptions, category headers, the match counter, keyhint commands).
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#8A90B0]+
+
+[[colors.glass.fg]]
+=== colors.glass.fg
+Text in the glass menus.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#A0A8CD]+
+
+[[colors.glass.match.fg]]
+=== colors.glass.match.fg
+Matched text in the completion, and the keys left to press in the keyhint.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#D7A65F]+
+
+[[colors.glass.selected.bg]]
+=== colors.glass.selected.bg
+Background of the selected row or item in the glass menus.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[rgba(53, 57, 82, 80%)]+
+
+[[colors.glass.selected.fg]]
+=== colors.glass.selected.fg
+Text of the selected row or item in the glass menus.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#E4E7F7]+
+
+[[colors.glass.title.bg]]
+=== colors.glass.title.bg
+Background of the title chips in the glass cards' borders.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#7199EE]+
+
+[[colors.glass.title.fg]]
+=== colors.glass.title.fg
+Text of the title chips in the glass cards' borders.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#11121D]+
 
 [[colors.hints.bg]]
 === colors.hints.bg
@@ -2054,15 +2055,6 @@ Type: <<types,PercOrInt>>
 
 Default: +pass:[50%]+
 
-[[completion.ivy.blur]]
-=== completion.ivy.blur
-How frosted the glass behind the tab picker is, roughly a blur radius in pixels.
-The page under the picker is grabbed and blurred each time the picker opens. 0 shows it sharp, as clear glass.
-
-Type: <<types,Int>>
-
-Default: +pass:[24]+
-
 [[completion.min_chars]]
 === completion.min_chars
 Minimum amount of characters needed to update completions.
@@ -2142,6 +2134,7 @@ Default: +pass:[false]+
 [[completion.tab_preview]]
 === completion.tab_preview
 Show a preview pane next to tab completions, as in `:tab-select`.
+Needs `glass.enabled`, whose cards hold the list and the preview.
 The pane shows the title, URL and a picture of the tab under the cursor, or of the first match while nothing is selected. Tabs on screen are pictured live; hidden tabs show how they looked when they were last hidden, or nothing if they were never shown.
 
 Type: <<types,Bool>>
@@ -3546,6 +3539,24 @@ This setting supports link:configuring{outfilesuffix}#patterns[URL patterns].
 Type: <<types,Int>>
 
 Default: +pass:[6]+
+
+[[glass.blur]]
+=== glass.blur
+How frosted the glass behind the menus is, roughly a blur radius in pixels.
+The page under a menu is grabbed and blurred each time the menu opens or resizes, which takes a few milliseconds. 0 shows it sharp, as clear glass.
+
+Type: <<types,Int>>
+
+Default: +pass:[24]+
+
+[[glass.enabled]]
+=== glass.enabled
+Draw qutebrowser's menus as frosted glass.
+The completion, the keyhint popup, prompts and context menus become rounded translucent cards over a blurred copy of the page they cover, in the `colors.glass.*` colors. Takes effect the next time a menu opens.
+
+Type: <<types,Bool>>
+
+Default: +pass:[true]+
 
 [[hints.auto_follow]]
 === hints.auto_follow
