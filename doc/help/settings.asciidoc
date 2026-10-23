@@ -30,9 +30,9 @@
 |<<colors.completion.item.selected.fg,colors.completion.item.selected.fg>>|Foreground color of the selected completion item.
 |<<colors.completion.item.selected.match.fg,colors.completion.item.selected.match.fg>>|Foreground color of the matched text in the selected completion item.
 |<<colors.completion.ivy.accent,colors.completion.ivy.accent>>|Marker bar on the selected row in the tab picker.
-|<<colors.completion.ivy.bg,colors.completion.ivy.bg>>|Background of the panel behind the tab picker's cards (`completion.tab_preview`).
+|<<colors.completion.ivy.bg,colors.completion.ivy.bg>>|Tint over the frosted page behind the tab picker's cards (`completion.tab_preview`).
 |<<colors.completion.ivy.border,colors.completion.ivy.border>>|Border of the tab picker's cards, chips and preview image.
-|<<colors.completion.ivy.card.bg,colors.completion.ivy.card.bg>>|Background of the tab picker's result and preview cards.
+|<<colors.completion.ivy.card.bg,colors.completion.ivy.card.bg>>|Background of the tab picker's result and preview cards, painted over the panel tint.
 |<<colors.completion.ivy.dim.fg,colors.completion.ivy.dim.fg>>|Secondary text in the tab picker (URLs, tab indices, window headers, the match counter).
 |<<colors.completion.ivy.fg,colors.completion.ivy.fg>>|Tab titles in the tab picker.
 |<<colors.completion.ivy.match.fg,colors.completion.ivy.match.fg>>|Matched text in the tab picker.
@@ -146,6 +146,7 @@
 |<<completion.delay,completion.delay>>|Delay (in milliseconds) before updating completions after typing a character.
 |<<completion.favorite_paths,completion.favorite_paths>>|Default filesystem autocomplete suggestions for :open.
 |<<completion.height,completion.height>>|Height (in pixels or as percentage of the window) of the completion.
+|<<completion.ivy.blur,completion.ivy.blur>>|How frosted the glass behind the tab picker is, roughly a blur radius in pixels.
 |<<completion.min_chars,completion.min_chars>>|Minimum amount of characters needed to update completions.
 |<<completion.open_categories,completion.open_categories>>|Which categories to show (in which order) in the :open completion.
 |<<completion.quick,completion.quick>>|Move on to the next part when there's only one possible completion left.
@@ -1023,11 +1024,12 @@ Default: +pass:[#95C561]+
 
 [[colors.completion.ivy.bg]]
 === colors.completion.ivy.bg
-Background of the panel behind the tab picker's cards (`completion.tab_preview`).
+Tint over the frosted page behind the tab picker's cards (`completion.tab_preview`).
+Its alpha sets how much of the page shows through; see `completion.ivy.blur` for how frosted it is.
 
 Type: <<types,QtColor>>
 
-Default: +pass:[#11121D]+
+Default: +pass:[rgba(17, 18, 29, 40%)]+
 
 [[colors.completion.ivy.border]]
 === colors.completion.ivy.border
@@ -1035,15 +1037,15 @@ Border of the tab picker's cards, chips and preview image.
 
 Type: <<types,QtColor>>
 
-Default: +pass:[#353945]+
+Default: +pass:[rgba(160, 168, 205, 22%)]+
 
 [[colors.completion.ivy.card.bg]]
 === colors.completion.ivy.card.bg
-Background of the tab picker's result and preview cards.
+Background of the tab picker's result and preview cards, painted over the panel tint.
 
 Type: <<types,QtColor>>
 
-Default: +pass:[#1A1B2A]+
+Default: +pass:[rgba(26, 27, 42, 60%)]+
 
 [[colors.completion.ivy.dim.fg]]
 === colors.completion.ivy.dim.fg
@@ -1051,7 +1053,7 @@ Secondary text in the tab picker (URLs, tab indices, window headers, the match c
 
 Type: <<types,QtColor>>
 
-Default: +pass:[#6B7089]+
+Default: +pass:[#8A90B0]+
 
 [[colors.completion.ivy.fg]]
 === colors.completion.ivy.fg
@@ -1075,7 +1077,7 @@ Background of the selected row in the tab picker.
 
 Type: <<types,QtColor>>
 
-Default: +pass:[#2A2D42]+
+Default: +pass:[rgba(53, 57, 82, 80%)]+
 
 [[colors.completion.ivy.selected.fg]]
 === colors.completion.ivy.selected.fg
@@ -2051,6 +2053,15 @@ Height (in pixels or as percentage of the window) of the completion.
 Type: <<types,PercOrInt>>
 
 Default: +pass:[50%]+
+
+[[completion.ivy.blur]]
+=== completion.ivy.blur
+How frosted the glass behind the tab picker is, roughly a blur radius in pixels.
+The page under the picker is grabbed and blurred each time the picker opens. 0 shows it sharp, as clear glass.
+
+Type: <<types,Int>>
+
+Default: +pass:[24]+
 
 [[completion.min_chars]]
 === completion.min_chars

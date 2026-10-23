@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 from qutebrowser.qt.widgets import (QTreeView, QSizePolicy, QStyleFactory, QWidget,
                                     QStyle, QStyleOptionViewItem)
 from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, Qt, QItemSelectionModel,
-                                 QSize, QRect, QRectF, QPoint)
-from qutebrowser.qt.gui import QFontMetrics, QPainter
+                                 QSize, QRect, QRectF, QPoint, QTimer)
+from qutebrowser.qt.gui import QFontMetrics, QPainter, QPixmap
 
 from qutebrowser.config import config, stylesheet
 from qutebrowser.completion import completiondelegate, tabpreview
@@ -100,8 +100,8 @@ class CompletionView(QTreeView):
         /* The ivy tab picker paints its own rows (drawRow), so the item
            rules above must not paint over them. */
         QTreeView[ivy="true"] {
-            background-color:
-                {{ qcolor_to_qsscolor(conf.colors.completion.ivy.card.bg) }};
+            /* the backdrop's frosted glass shows through the list */
+            background: transparent;
             /* else the favicon gutter gets the style's highlight */
             show-decoration-selected: 0;
         }
@@ -129,6 +129,8 @@ class CompletionView(QTreeView):
         self._cmd = cmd
         self._active = False
         self._previewing = False
+        self._glass: QPixmap | None = None
+        self._frosting = False
         self._backdrop = _Backdrop(self)
         self._preview = tabpreview.TabPreview(self)
 
@@ -207,14 +209,62 @@ class CompletionView(QTreeView):
         self.setRootIsDecorated(not on)
         self.setIndentation(self._gutter() if on else 0)
         self.setProperty('ivy', on)
+        viewport = self.viewport()
+        assert viewport is not None
+        viewport.setAutoFillBackground(not on)
         style = self.style()
         assert style is not None
         style.unpolish(self)
         style.polish(self)
         self._order_columns()
         self._place_preview()
-        if not on:
+        if on:
+            if self.isVisible():
+                self._refresh_glass()
+        else:
+            self._glass = None
             self._preview.clear()
+
+    def _refresh_glass(self) -> None:
+        """Grab and frost the page area the picker covers.
+
+        The grab is of the tab widget, which the completion overlays but is
+        not part of, so the picker never appears in its own glass.
+        """
+        if self._frosting:
+            return
+        self._glass = None
+        if not self._previewing or not self.isVisible():
+            return
+        self._frosting = True
+        try:
+            self._frost()
+        finally:
+            self._frosting = False
+        self._backdrop.update()
+
+    def _frost(self) -> None:
+        radius = config.val.completion.ivy.blur
+        try:
+            tabbed_browser = objreg.get('tabbed-browser', scope='window',
+                                        window=self._win_id)
+        except (KeyError, objreg.RegistryUnavailableError):
+            return
+        under = tabbed_browser.widget
+        if not isinstance(under, QWidget):
+            return
+        topleft = under.mapFromGlobal(self.mapToGlobal(QPoint(0, 0)))
+        area = QRect(topleft, self.size()).intersected(under.rect())
+        if area.isEmpty():
+            return
+        with debug.log_time(log.completion, 'Frosting picker glass'):
+            grabbed = under.grab(area)
+            glass = QPixmap(self.size())
+            glass.fill(Qt.GlobalColor.black)
+            painter = QPainter(glass)
+            painter.drawPixmap(area.topLeft() - topleft, grabbed)
+            painter.end()
+            self._glass = tabpreview.blur(glass, radius)
 
     def _gutter(self) -> int:
         return QFontMetrics(self.font()).height() + 12
@@ -257,13 +307,17 @@ class CompletionView(QTreeView):
     def paint_backdrop(self, painter: QPainter) -> None:
         """Paint the panel and the result card behind the list."""
         colors = tabpreview.Colors.from_config()
-        tabpreview.paint_panel(painter, self.rect(), colors)
+        tabpreview.paint_panel(painter, self.rect(), colors, self._glass)
         model = self.model()
         count = ''
         if isinstance(model, completionmodel.CompletionModel):
             count = f'{model.count()} / {self._total_tabs()}'
         tabpreview.paint_card(painter, self._list_outer(), self.font(),
                               colors, 'Tabs', count)
+        preview_outer = self._preview.outer_rect().translated(
+            self._preview.pos())
+        tabpreview.paint_card(painter, preview_outer, self._preview.font(),
+                              colors, 'Preview')
 
     @staticmethod
     def _total_tabs() -> int:
@@ -689,6 +743,9 @@ class CompletionView(QTreeView):
         super().resizeEvent(e)
         self._place_preview()
         self._resize_columns()
+        if self._previewing and self.isVisible() and not self._frosting:
+            # Deferred: grabbing lays the window out, which resizes us.
+            QTimer.singleShot(0, self._refresh_glass)
 
     def showEvent(self, e):
         """Adjust the completion size and scroll when it's freshly shown."""
@@ -697,6 +754,8 @@ class CompletionView(QTreeView):
         if scrollbar is not None:
             scrollbar.setValue(scrollbar.minimum())
         super().showEvent(e)
+        if self._previewing:
+            self._refresh_glass()
         self._update_preview()
 
     def hideEvent(self, e):

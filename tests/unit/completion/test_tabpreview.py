@@ -5,7 +5,8 @@
 """Tests for the ivy-style tab preview of the completion."""
 
 import pytest
-from qutebrowser.qt.core import QUrl
+from qutebrowser.qt.core import QUrl, Qt
+from qutebrowser.qt.gui import QColor, QPainter, QPixmap
 
 from qutebrowser.completion import completionwidget, tabpreview
 from qutebrowser.completion.models import completionmodel, listcategory
@@ -72,6 +73,19 @@ def test_capture_respects_setting(qtbot, fake_web_tab, config_stub):
     tabpreview.capture(tab)
     tab.hide()
     assert tabpreview.snapshot(tab) is None
+
+
+def test_blur_keeps_size_and_softens(qapp):
+    pixmap = QPixmap(200, 100)
+    pixmap.fill(Qt.GlobalColor.black)
+    painter = QPainter(pixmap)
+    painter.fillRect(0, 0, 100, 100, Qt.GlobalColor.white)
+    painter.end()
+    frosted = tabpreview.blur(pixmap, 24)
+    assert frosted.size() == pixmap.size()
+    edge = QColor(frosted.toImage().pixel(100, 50))
+    assert 0 < edge.value() < 255
+    assert tabpreview.blur(pixmap, 0) is pixmap
 
 
 def test_hidden_tab_without_capture(fake_web_tab, qtbot):

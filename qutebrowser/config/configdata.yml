@@ -1385,6 +1385,19 @@ completion.shrink:
   desc: Shrink the completion to be smaller than the configured size if
     there are no scrollbars.
 
+completion.ivy.blur:
+  default: 24
+  type:
+    name: Int
+    minval: 0
+    maxval: 128
+  desc: >-
+    How frosted the glass behind the tab picker is, roughly a blur radius
+    in pixels.
+
+    The page under the picker is grabbed and blurred each time the picker
+    opens. 0 shows it sharp, as clear glass.
+
 completion.tab_preview:
   default: true
   type: Bool
@@ -2977,18 +2990,23 @@ colors.completion.scrollbar.bg:
   desc: Color of the scrollbar in the completion view.
 
 colors.completion.ivy.bg:
-  default: '#11121D'
+  default: rgba(17, 18, 29, 40%)
   type: QtColor
-  desc: Background of the panel behind the tab picker's cards
+  desc: >-
+    Tint over the frosted page behind the tab picker's cards
     (`completion.tab_preview`).
 
+    Its alpha sets how much of the page shows through; see
+    `completion.ivy.blur` for how frosted it is.
+
 colors.completion.ivy.card.bg:
-  default: '#1A1B2A'
+  default: rgba(26, 27, 42, 60%)
   type: QtColor
-  desc: Background of the tab picker's result and preview cards.
+  desc: Background of the tab picker's result and preview cards, painted
+    over the panel tint.
 
 colors.completion.ivy.border:
-  default: '#353945'
+  default: rgba(160, 168, 205, 22%)
   type: QtColor
   desc: Border of the tab picker's cards, chips and preview image.
 
@@ -3008,13 +3026,13 @@ colors.completion.ivy.fg:
   desc: Tab titles in the tab picker.
 
 colors.completion.ivy.dim.fg:
-  default: '#6B7089'
+  default: '#8A90B0'
   type: QtColor
   desc: Secondary text in the tab picker (URLs, tab indices, window
     headers, the match counter).
 
 colors.completion.ivy.selected.bg:
-  default: '#2A2D42'
+  default: rgba(53, 57, 82, 80%)
   type: QtColor
   desc: Background of the selected row in the tab picker.
 

@@ -16,9 +16,10 @@ painted here with QPainter, for both the result list and the preview pane.
 import dataclasses
 import weakref
 
-from qutebrowser.qt.core import Qt, QRect, QRectF, QSize, QPoint
-from qutebrowser.qt.gui import (QColor, QFont, QFontMetrics, QPainter,
-                                QPainterPath, QPen, QPixmap)
+from qutebrowser.qt.core import Qt, QRect, QRectF, QSize, QPoint, QPointF
+from qutebrowser.qt.gui import (QBrush, QColor, QFont, QFontMetrics,
+                                QLinearGradient, QPainter, QPainterPath, QPen,
+                                QPixmap)
 from qutebrowser.qt.widgets import QWidget
 
 from qutebrowser.config import config, stylesheet
@@ -130,11 +131,36 @@ def content_rect(outer: QRect, font: QFont) -> QRect:
                          -INNER, -INNER)
 
 
-def paint_panel(painter: QPainter, rect: QRect, colors: Colors) -> None:
-    """The panel behind the cards, with a hairline on top."""
+def blur(pixmap: QPixmap, radius: int) -> QPixmap:
+    """A cheap frosted-glass blur: scale down smoothly, then back up.
+
+    Two smooth downscales and one smooth upscale approximate a gaussian of
+    about ``radius`` pixels in a few milliseconds, with no extra modules.
+    """
+    if radius <= 1 or pixmap.isNull():
+        return pixmap
+    size = pixmap.size()
+    smooth = Qt.TransformationMode.SmoothTransformation
+    ignore = Qt.AspectRatioMode.IgnoreAspectRatio
+    half = pixmap.scaled(QSize(max(size.width() * 2 // radius, 1),
+                               max(size.height() * 2 // radius, 1)),
+                         ignore, smooth)
+    small = half.scaled(QSize(max(size.width() // radius, 1),
+                              max(size.height() // radius, 1)),
+                        ignore, smooth)
+    return small.scaled(size, ignore, smooth)
+
+
+def paint_panel(painter: QPainter, rect: QRect, colors: Colors,
+                glass: QPixmap | None = None) -> None:
+    """The panel behind the cards: frosted page, tint, a lit top edge."""
+    if glass is not None and not glass.isNull():
+        painter.drawPixmap(rect.topLeft(), glass)
     painter.fillRect(rect, colors.bg)
     painter.fillRect(QRect(rect.left(), rect.top(), rect.width(), 1),
                      colors.border)
+    painter.fillRect(QRect(rect.left(), rect.top() + 1, rect.width(), 1),
+                     QColor(255, 255, 255, 22))
 
 
 def paint_card(painter: QPainter, outer: QRect, font: QFont,
@@ -150,6 +176,15 @@ def paint_card(painter: QPainter, outer: QRect, font: QFont,
     painter.setPen(QPen(colors.border, 1))
     painter.setBrush(colors.card)
     painter.drawRoundedRect(card, RADIUS, RADIUS)
+    # Glass edge: light catching the top of the card, fading downwards.
+    sheen = QLinearGradient(card.topLeft(), card.topLeft() + QPointF(
+        0, min(card.height() / 2, 60)))
+    sheen.setColorAt(0, QColor(255, 255, 255, 40))
+    sheen.setColorAt(1, QColor(255, 255, 255, 0))
+    painter.setPen(QPen(QBrush(sheen), 1))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(card.adjusted(1, 1, -1, -1), RADIUS - 1,
+                            RADIUS - 1)
 
     chip_font = title_font(font)
     metrics = QFontMetrics(chip_font)
@@ -190,7 +225,11 @@ def paint_shadow(painter: QPainter, rect: QRectF, radius: float) -> None:
 
 class TabPreview(QWidget):
 
-    """The preview card on the right of the tab completion."""
+    """The preview card's content on the right of the tab completion.
+
+    The widget has no background: the completion's backdrop, under it,
+    paints the glass and the card, so the frosted page shows through.
+    """
 
     STYLESHEET = """
         TabPreview {
@@ -207,7 +246,6 @@ class TabPreview(QWidget):
         self._title = ''
         self._url = ''
         self._icon = None
-        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         stylesheet.set_register(self)
         self.hide()
 
@@ -254,18 +292,20 @@ class TabPreview(QWidget):
         super().resizeEvent(e)
         self._scaled = None
 
+    def outer_rect(self) -> QRect:
+        """The card's area in this widget, reaching half a gap to the left."""
+        return self.rect().adjusted(-PAD // 2, 0, 0, 0)
+
     def paintEvent(self, e):
         """Paint the card: favicon and title, URL, then the page."""
         colors = Colors.from_config()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        outer = self.rect().adjusted(-PAD // 2, 0, 0, 0)
-        paint_panel(painter, self.rect(), colors)
+        outer = self.outer_rect()
         font = self.font()
         heading = QFont(font)
         heading.setBold(True)
-        paint_card(painter, outer, font, colors, 'Preview')
         if self._tab is None:
             return
 
