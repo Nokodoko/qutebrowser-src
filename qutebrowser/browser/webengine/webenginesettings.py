@@ -295,6 +295,11 @@ class ProfileSetter:
             QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.FocusOnNavigationEnabled, False)
+        # Lets window.focus() and DevTools tab activation reach the tab's
+        # widget; TabbedBrowser switches to a background tab that got focus.
+        settings.setAttribute(
+            QWebEngineSettings.WebAttribute.AllowWindowActivationFromJavaScript,
+            True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, False)
 
     def set_http_headers(self):

@@ -19,6 +19,12 @@ from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               tabindex, textbase, clock, searchmatch)
 
 
+# The segment label of a mode whose name is not its label.
+_SEGMENT_MODE_LABELS = {'passthrough': 'ENGAGE'}
+#: Modes that announce themselves in the bar although keys are not passed on.
+_TILING_MODES = (usertypes.KeyMode.tile,)
+
+
 @dataclasses.dataclass
 class ColorFlags:
 
@@ -78,6 +84,32 @@ class ColorFlags:
         return strings
 
 
+_SEGMENT_QSS = """
+    SELECTOR QLabel {
+        qproperty-segmentBg: {% if conf.statusbar.segments %}{{ conf.colors.OPTION.bg }}{% else %}transparent{% endif %};
+    }
+
+    SELECTOR QLineEdit {
+        color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.fg }}{% else %}{{ conf.colors.OPTION.fg }}{% endif %};
+    }
+
+    SELECTOR {
+        background-color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.bg }}{% else %}{{ conf.colors.OPTION.bg }}{% endif %};
+    }
+"""
+
+
+def _segment_qss(selector, option):
+    """Get the background QSS for one mode color.
+
+    With statusbar.segments the mode background goes to the labels (painted
+    only behind their text, see TextBase), the bar itself takes
+    colors.statusbar.segments.bg, and the command line text (no longer on a
+    colored bar) takes colors.statusbar.segments.fg.
+    """
+    return _SEGMENT_QSS.replace('SELECTOR', selector).replace('OPTION', option)
+
+
 def _generate_stylesheet():
     flags = [
         ('private', 'statusbar.private'),
@@ -96,24 +128,18 @@ def _generate_stylesheet():
             font: {{ conf.fonts.statusbar }};
             color: {{ conf.colors.statusbar.normal.fg }};
         }
-
-        QWidget#StatusBar {
-            background-color: {{ conf.colors.statusbar.normal.bg }};
-        }
     """
+    qss += _segment_qss('QWidget#StatusBar', 'statusbar.normal')
     for flag, option in flags:
         qss += """
             QWidget#StatusBar[color_flags~="%s"],
-            QWidget#StatusBar[color_flags~="%s"] QLabel,
-            QWidget#StatusBar[color_flags~="%s"] QLineEdit {
+            QWidget#StatusBar[color_flags~="%s"] QLabel {
                 color: {{ conf.colors.%s }};
             }
-
-            QWidget#StatusBar[color_flags~="%s"] {
-                background-color: {{ conf.colors.%s }};
-            }
-        """ % (flag, flag, flag,  # noqa: S001
-               option + '.fg', flag, option + '.bg')
+        """ % (flag, flag, option + '.fg')  # noqa: S001
+        qss += _segment_qss(
+            'QWidget#StatusBar[color_flags~="%s"]' % flag,  # noqa: S001
+            option)
     return qss
 
 
@@ -160,6 +186,12 @@ class StatusBar(QWidget):
         self._win_id = win_id
         self._color_flags = ColorFlags()
         self._color_flags.private = private
+
+        self._autohidden = False
+        self._autohide_timer = usertypes.Timer(self, 'statusbar-autohide')
+        self._autohide_timer.setSingleShot(True)
+        self._autohide_timer.timeout.connect(self._on_autohide_timeout)
+        self._restart_autohide()
 
         self._hbox = QHBoxLayout(self)
         self._set_hbox_padding()
@@ -229,6 +261,9 @@ class StatusBar(QWidget):
     @pyqtSlot(str)
     def _on_config_changed(self, option):
         if option == 'statusbar.show':
+            self.maybe_hide()
+        elif option == 'statusbar.autohide':
+            self._restart_autohide()
             self.maybe_hide()
         elif option == 'statusbar.padding':
             self._set_hbox_padding()
@@ -300,9 +335,41 @@ class StatusBar(QWidget):
                 else:
                     self.show()
         elif strategy == 'always':
-            self.show()
+            self.setVisible(not self._autohidden)
         else:
             raise utils.Unreachable
+
+    def _restart_autohide(self):
+        """Unhide the statusbar and restart the statusbar.autohide delay."""
+        self._autohidden = False
+        delay = config.val.statusbar.autohide
+        if delay:
+            self._autohide_timer.start(delay)
+        else:
+            self._autohide_timer.stop()
+
+    def _on_mode_change(self):
+        """Unhide an autohidden statusbar on any mode change."""
+        self._restart_autohide()
+        if config.val.statusbar.show == 'always':
+            self.maybe_hide()
+
+    @pyqtSlot()
+    def _on_autohide_timeout(self):
+        """Hide the statusbar after statusbar.autohide without a mode change.
+
+        A command line being typed or a prompt being answered keeps it shown;
+        the check is retried after another delay.
+        """
+        try:
+            mode = modeman.instance(self._win_id).mode
+        except modeman.UnavailableError:
+            return
+        if mode in [usertypes.KeyMode.command, *modeman.PROMPT_MODES]:
+            self._restart_autohide()
+            return
+        self._autohidden = True
+        self.maybe_hide()
 
     def _set_hbox_padding(self):
         padding = config.val.statusbar.padding
@@ -346,6 +413,9 @@ class StatusBar(QWidget):
 
     def _set_mode_text(self, mode):
         """Set the mode text."""
+        if config.val.statusbar.segments:
+            self.txt.setText(_SEGMENT_MODE_LABELS.get(mode, mode.upper()))
+            return
         if mode == 'passthrough':
             key_instance = config.key_instance
             all_bindings = key_instance.get_reverse_bindings_for('passthrough')
@@ -383,9 +453,10 @@ class StatusBar(QWidget):
         if config.val.statusbar.show == 'in-mode' and mode != usertypes.KeyMode.command:
             # Showing in command mode is handled via _show_cmd_widget()
             self.show()
+        self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
-        if mode_manager.parsers[mode].passthrough:
+        if mode_manager.parsers[mode].passthrough or mode in _TILING_MODES:
             self._set_mode_text(mode.name)
         if mode in [usertypes.KeyMode.insert,
                     usertypes.KeyMode.command,
@@ -401,9 +472,11 @@ class StatusBar(QWidget):
         if config.val.statusbar.show == 'in-mode' and old_mode != usertypes.KeyMode.command:
             # Hiding in command mode is handled via _hide_cmd_widget()
             self.hide()
+        self._on_mode_change()
 
         mode_manager = modeman.instance(self._win_id)
-        if mode_manager.parsers[old_mode].passthrough:
+        if (mode_manager.parsers[old_mode].passthrough or
+                old_mode in _TILING_MODES):
             if mode_manager.parsers[new_mode].passthrough:
                 self._set_mode_text(new_mode.name)
             else:

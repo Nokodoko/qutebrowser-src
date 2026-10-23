@@ -14,11 +14,12 @@ import re
 
 from qutebrowser.qt.widgets import QLabel, QSizePolicy
 from qutebrowser.qt.core import pyqtSlot, pyqtSignal, Qt
-from qutebrowser.qt.gui import QKeySequence
+from qutebrowser.qt.gui import QKeySequence, QPainter
 
 from qutebrowser.config import config, stylesheet
 from qutebrowser.utils import utils, usertypes
 from qutebrowser.misc import objects
+from qutebrowser.mainwindow import glass
 from qutebrowser.keyinput import keyutils
 
 
@@ -36,20 +37,31 @@ class KeyHintView(QLabel):
     STYLESHEET = """
         QLabel {
             font: {{ conf.fonts.keyhint }};
-            color: {{ conf.colors.keyhint.fg }};
-            background-color: {{ conf.colors.keyhint.bg }};
-            padding: 6px;
-            {% if conf.statusbar.position == 'top' %}
-                border-bottom-right-radius: {{ conf.keyhint.radius }}px;
+            {% if conf.glass.enabled %}
+                color: {{ qcolor_to_qsscolor(conf.colors.glass.fg) }};
+                background: transparent;
+                padding: 16px 20px;
             {% else %}
-                border-top-right-radius: {{ conf.keyhint.radius }}px;
+                color: {{ conf.colors.keyhint.fg }};
+                background-color: {{ conf.colors.keyhint.bg }};
+                padding: 6px;
+                {% if conf.statusbar.position == 'top' %}
+                    border-bottom-right-radius: {{ conf.keyhint.radius }}px;
+                {% else %}
+                    border-top-right-radius: {{ conf.keyhint.radius }}px;
+                {% endif %}
             {% endif %}
         }
     """
+
+    #: Gap between the glass card and the widget's edges.
+    _CARD_MARGIN = 6
     update_geometry = pyqtSignal()
 
     def __init__(self, win_id, parent=None):
         super().__init__(parent)
+        # Before hide() below, which sends a hideEvent.
+        self._frost = glass.Frost(self)
         self.setTextFormat(Qt.TextFormat.RichText)
         self._win_id = win_id
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
@@ -66,6 +78,27 @@ class KeyHintView(QLabel):
         """Adjust the keyhint size when it's freshly shown."""
         self.update_geometry.emit()
         super().showEvent(e)
+        self._frost.refresh()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._frost.clear()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if glass.enabled() and self.isVisible():
+            self._frost.schedule()
+
+    def paintEvent(self, e):
+        """With glass, a floating frosted card goes under the text."""
+        if glass.enabled():
+            painter = QPainter(self)
+            margin = self._CARD_MARGIN
+            glass.paint_surface(
+                painter, self.rect().adjusted(margin, margin, -margin, -margin),
+                glass.Colors.from_config(), self._frost)
+            painter.end()
+        super().paintEvent(e)
 
     @pyqtSlot(usertypes.KeyMode, str)
     def update_keyhint(self, mode, prefix):
@@ -110,17 +143,25 @@ class KeyHintView(QLabel):
         # delay so a quickly typed keychain doesn't display hints
         self._show_timer.setInterval(config.val.keyhint.delay)
         self._show_timer.start()
-        suffix_color = html.escape(config.val.colors.keyhint.suffix.fg)
+        if glass.enabled():
+            # Typed keys recede, the keys left to press stand out.
+            colors = config.val.colors.glass
+            prefix_style = " style='color: {}'".format(colors.dim.fg.name())
+            suffix_color = colors.match.fg.name()
+        else:
+            prefix_style = ''
+            suffix_color = html.escape(config.val.colors.keyhint.suffix.fg)
 
         text = ''
         for seq, cmd in bindings:
             text += (
                 "<tr>"
-                "<td>{}</td>"
+                "<td{}>{}</td>"
                 "<td style='color: {}'>{}</td>"
                 "<td style='padding-left: 2ex'>{}</td>"
                 "</tr>"
             ).format(
+                prefix_style,
                 html.escape(prefix),
                 suffix_color,
                 html.escape(str(seq).removeprefix(prefix)),

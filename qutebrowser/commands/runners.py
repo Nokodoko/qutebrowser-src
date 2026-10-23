@@ -184,5 +184,6 @@ class CommandRunner(AbstractCommandRunner):
         if record_last_command:
             last_command[cur_mode] = (text, count)
 
-        if record_macro and cur_mode == usertypes.KeyMode.normal:
+        if record_macro and cur_mode in [usertypes.KeyMode.normal,
+                                         usertypes.KeyMode.tile]:
             macros.macro_recorder.record_command(text, count)

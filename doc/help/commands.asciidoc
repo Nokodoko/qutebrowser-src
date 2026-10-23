@@ -134,6 +134,16 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<tab-prev,tab-prev>>|Switch to the previous tab, or switch [count] tabs back.
 |<<tab-select,tab-select>>|Select tab by index or url/title best match.
 |<<tab-take,tab-take>>|Take a tab from another window.
+|<<tag,tag>>|Move the current tab to a tag (dwm tag).
+|<<tag-rename,tag-rename>>|Name the viewed tag, like zellij's rename-tab.
+|<<tag-toggle,tag-toggle>>|Add or remove a tag on the current tab (dwm toggletag).
+|<<tag-toggle-view,tag-toggle-view>>|Add or remove a tag from the viewed tagset (dwm toggleview).
+|<<tag-view,tag-view>>|View the tabs on a tag (dwm view).
+|<<tile-focus,tile-focus>>|Focus the next/previous tab in the one stack (zellij j/k).
+|<<tile-layout,tile-layout>>|Set the tiling layout of this window (dwm setlayout).
+|<<tile-mfact,tile-mfact>>|Change the master column width (dwm setmfact).
+|<<tile-nmaster,tile-nmaster>>|Change the number of master tabs (dwm incnmaster).
+|<<tile-zoom,tile-zoom>>|Swap the current tab with the master (dwm zoom).
 |<<unbind,unbind>>|Unbind a keychain.
 |<<undo,undo>>|Re-open the last closed tab(s) or window.
 |<<version,version>>|Show version information.
@@ -1560,6 +1570,117 @@ Take a tab from another window.
 
 ==== note
 * This command does not split arguments after the last argument and handles quotes literally.
+
+[[tag]]
+=== tag
+Syntax: +:tag 'tag'+
+
+Move the current tab to a tag (dwm tag).
+
+==== positional arguments
+* +'tag'+: The tag number (1-9) or 'all'.
+
+==== count
+The tag number, overrides `tag`.
+
+[[tag-rename]]
+=== tag-rename
+Syntax: +:tag-rename ['name']+
+
+Name the viewed tag, like zellij's rename-tab.
+
+==== positional arguments
+* +'name'+: The new name; empty restores `Tab #N`.
+
+==== count
+The tag number to rename instead of the viewed one.
+
+==== note
+* This command does not split arguments after the last argument and handles quotes literally.
+
+[[tag-toggle]]
+=== tag-toggle
+Syntax: +:tag-toggle 'tag'+
+
+Add or remove a tag on the current tab (dwm toggletag).
+
+A tab always keeps at least one tag.
+
+==== positional arguments
+* +'tag'+: The tag number (1-9).
+
+==== count
+The tag number, overrides `tag`.
+
+[[tag-toggle-view]]
+=== tag-toggle-view
+Syntax: +:tag-toggle-view 'tag'+
+
+Add or remove a tag from the viewed tagset (dwm toggleview).
+
+==== positional arguments
+* +'tag'+: The tag number (1-9).
+
+==== count
+The tag number, overrides `tag`.
+
+[[tag-view]]
+=== tag-view
+Syntax: +:tag-view ['tag']+
+
+View the tabs on a tag (dwm view).
+
+==== positional arguments
+* +'tag'+: The tag number (1-9), 'all' for every tag, or 'prev' to go back to the previously viewed tagset.
+
+
+==== count
+The tag number, overrides `tag`.
+
+[[tile-focus]]
+=== tile-focus
+Syntax: +:tile-focus ['direction']+
+
+Focus the next/previous tab in the one stack (zellij j/k).
+
+Every tag is a zellij tab and its browser tabs are the panes, in one flat stack. Stepping past the last pane of the viewed tag moves on to the first pane of the next tag and the view follows, so the browser shifts into that zellij tab with the selected pane.
+
+==== positional arguments
+* +'direction'+: `next` or `prev`.
+
+[[tile-layout]]
+=== tile-layout
+Syntax: +:tile-layout ['layout']+
+
+Set the tiling layout of this window (dwm setlayout).
+
+==== positional arguments
+* +'layout'+: `tile`, `monocle`, or `toggle` between the two.
+
+[[tile-mfact]]
+=== tile-mfact
+Syntax: +:tile-mfact ['value']+
+
+Change the master column width (dwm setmfact).
+
+==== positional arguments
+* +'value'+: A delta like `+0.05` / `-0.05`, or an absolute fraction like `0.55`.
+
+
+[[tile-nmaster]]
+=== tile-nmaster
+Syntax: +:tile-nmaster ['value']+
+
+Change the number of master tabs (dwm incnmaster).
+
+==== positional arguments
+* +'value'+: A delta like `+1` / `-1`, or an absolute count.
+
+[[tile-zoom]]
+=== tile-zoom
+Swap the current tab with the master (dwm zoom).
+
+If the current tab already is the master, the next visible tab becomes master instead.
 
 [[unbind]]
 === unbind

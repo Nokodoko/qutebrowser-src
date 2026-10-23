@@ -10,13 +10,17 @@ subclasses to provide completions.
 
 from typing import TYPE_CHECKING
 
-from qutebrowser.qt.widgets import QTreeView, QSizePolicy, QStyleFactory, QWidget
-from qutebrowser.qt.core import pyqtSlot, pyqtSignal, Qt, QItemSelectionModel, QSize
+from qutebrowser.qt.widgets import (QTreeView, QSizePolicy, QStyleFactory, QWidget,
+                                    QStyle, QStyleOptionViewItem)
+from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, Qt, QItemSelectionModel,
+                                 QSize, QRect, QRectF, QPoint)
+from qutebrowser.qt.gui import QFontMetrics, QPainter
 
 from qutebrowser.config import config, stylesheet
-from qutebrowser.completion import completiondelegate
+from qutebrowser.completion import completiondelegate, tabpreview
 from qutebrowser.completion.models import completionmodel
-from qutebrowser.utils import utils, usertypes, debug, log, qtutils
+from qutebrowser.mainwindow import glass
+from qutebrowser.utils import utils, usertypes, debug, log, qtutils, objreg
 from qutebrowser.api import cmdutils
 if TYPE_CHECKING:
     from qutebrowser.mainwindow.statusbar import command
@@ -38,6 +42,10 @@ class CompletionView(QTreeView):
         _column_widths: A list of column widths, in percent.
         _active: Whether a selection is active.
         _cmd: The statusbar Command object.
+        _preview: The ivy-style pane previewing the tab under the cursor.
+        _glassy: Whether the glass chrome is painted (glass.enabled).
+        _previewing: Whether the current model gets the preview pane.
+        _frost: The frosted page under the completion.
 
     Signals:
         update_geometry: Emitted when the completion should be resized.
@@ -91,6 +99,24 @@ class CompletionView(QTreeView):
             border: none;
             background: none;
         }
+
+        /* With glass the view paints its own rows (drawRow), so the item
+           rules above must not paint over them. */
+        QTreeView[glass="true"] {
+            /* the backdrop's frosted glass shows through the list */
+            background: transparent;
+            /* else the favicon gutter gets the style's highlight */
+            show-decoration-selected: 0;
+        }
+
+        QTreeView[glass="true"]::item,
+        QTreeView[glass="true"]::item:selected,
+        QTreeView[glass="true"]::item:selected:hover,
+        QTreeView[glass="true"]::item:disabled,
+        QTreeView[glass="true"]::branch {
+            background: transparent;
+            border: 0px;
+        }
     """
 
     update_geometry = pyqtSignal()
@@ -105,6 +131,11 @@ class CompletionView(QTreeView):
         self._win_id = win_id
         self._cmd = cmd
         self._active = False
+        self._glassy = False
+        self._previewing = False
+        self._backdrop = _Backdrop(self)
+        self._frost = glass.Frost(self, self._backdrop.update)
+        self._preview = tabpreview.TabPreview(self)
 
         config.instance.changed.connect(self._on_config_changed)
 
@@ -157,17 +188,264 @@ class CompletionView(QTreeView):
         if option in ['completion.height', 'completion.shrink']:
             self.update_geometry.emit()
 
+    # ---- glass chrome and the tab picker ---------------------------------
+    #
+    # With glass.enabled every completion is a frosted panel holding a
+    # rounded result card, with rows painted as pills (drawRow). A tab model
+    # additionally gets the ivy tab picker: a preview card on the right,
+    # favicons in the indentation gutter and the title before the URL.
+
+    #: Share of the completion width the preview pane takes.
+    PREVIEW_PERC = 45
+    #: Logical columns of a tab model, shown title first in the picker.
+    _URL_COLUMN, _TITLE_COLUMN = 1, 2
+
+    @property
+    def glass(self) -> bool:
+        """Whether the view paints the glass chrome."""
+        return self._glassy
+
+    @property
+    def previewing(self) -> bool:
+        """Whether the view is the tab picker (list plus preview)."""
+        return self._previewing
+
+    def primary_column(self) -> int:
+        """The column that reads as the item, the others recede."""
+        return self._TITLE_COLUMN if self._previewing else 0
+
+    def _set_mode(self, *, glassy: bool, previewing: bool) -> None:
+        """Switch between the stock look, glass, and the tab picker."""
+        self._glassy = glassy
+        self._previewing = glassy and previewing
+        # The cards have no room for a scrollbar; the counter tells the size.
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff if glassy
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setAlternatingRowColors(not glassy)
+        # The indentation is the favicon gutter, painted by drawBranches.
+        self.setRootIsDecorated(not self._previewing)
+        self.setIndentation(self._gutter() if self._previewing else 0)
+        self.setProperty('glass', glassy)
+        viewport = self.viewport()
+        assert viewport is not None
+        viewport.setAutoFillBackground(not glassy)
+        style = self.style()
+        assert style is not None
+        style.unpolish(self)
+        style.polish(self)
+        self._order_columns()
+        self._place_chrome()
+        if not self._previewing:
+            self._preview.clear()
+        if not glassy:
+            self._frost.clear()
+        elif self.isVisible():
+            self._frost.refresh()
+
+    def _gutter(self) -> int:
+        return QFontMetrics(self.font()).height() + 12
+
+    def _order_columns(self) -> None:
+        """Show the title before the URL in the picker, as stored otherwise."""
+        header = self.header()
+        assert header is not None
+        if header.count() <= self._TITLE_COLUMN:
+            return
+        want = self._URL_COLUMN if self._previewing else self._TITLE_COLUMN
+        current = header.visualIndex(self._TITLE_COLUMN)
+        if current != want:
+            header.moveSection(current, want)
+
+    def _list_outer(self) -> QRect:
+        """The area of the result card: all of it, or left of the preview."""
+        if not self._previewing:
+            return self.rect()
+        width = self.width() * self.PREVIEW_PERC // 100
+        return QRect(0, 0, self.width() - width, self.height())
+
+    def _place_chrome(self) -> None:
+        if not self._glassy:
+            self.setViewportMargins(0, 0, 0, 0)
+            self._backdrop.hide()
+            self._preview.hide()
+            return
+        outer = self._list_outer()
+        content = glass.content_rect(outer, self.font())
+        self.setViewportMargins(content.left(), content.top(),
+                                self.width() - content.right() - 1,
+                                self.height() - content.bottom() - 1)
+        self._backdrop.setGeometry(self.rect())
+        self._backdrop.show()
+        self._backdrop.lower()
+        if self._previewing:
+            self._preview.setGeometry(outer.right() + 1, 0,
+                                      self.width() - outer.width(),
+                                      self.height())
+            self._preview.show()
+            self._preview.raise_()
+        else:
+            self._preview.hide()
+
+    def _card_title(self) -> str:
+        """The result card's title: Tabs, or the command being completed."""
+        if self._previewing:
+            return 'Tabs'
+        words = self._cmd.text().lstrip(':').split()
+        return words[0] if words else 'Completion'
+
+    def paint_backdrop(self, painter: QPainter) -> None:
+        """Paint the panel and the cards behind the list."""
+        colors = glass.Colors.from_config()
+        glass.paint_panel(painter, self.rect(), colors, self._frost)
+        model = self.model()
+        count = ''
+        if isinstance(model, completionmodel.CompletionModel):
+            count = str(model.count())
+            if self._previewing:
+                count += f' / {self._total_tabs()}'
+        glass.paint_card(painter, self._list_outer(), self.font(), colors,
+                         self._card_title(), count)
+        if self._previewing:
+            preview_outer = self._preview.outer_rect().translated(
+                self._preview.pos())
+            glass.paint_card(painter, preview_outer, self._preview.font(),
+                             colors, 'Preview')
+
+    @staticmethod
+    def _total_tabs() -> int:
+        total = 0
+        for win_id in objreg.window_registry:
+            try:
+                tabbed_browser = objreg.get('tabbed-browser', scope='window',
+                                            window=win_id)
+            except (KeyError, objreg.RegistryUnavailableError):
+                continue
+            total += tabbed_browser.widget.count()
+        return total
+
+    def drawRow(self, painter, option, index):
+        """With glass, paint rows as pills and categories as rules."""
+        if not self._glassy:
+            super().drawRow(painter, option, index)
+            return
+        colors = glass.Colors.from_config()
+        rect = QRectF(option.rect)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not index.parent().isValid():
+            self._draw_category(painter, rect, index, colors)
+            painter.restore()
+            return
+        if self.row_selected(index):
+            pill = rect.adjusted(2, 2, -2, -2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colors.selected_bg)
+            painter.drawRoundedRect(pill, 7, 7)
+            bar = QRectF(pill.left() + 4, pill.top() + 6, 3,
+                         max(pill.height() - 12, 2))
+            painter.setBrush(colors.accent)
+            painter.drawRoundedRect(bar, 1.5, 1.5)
+        painter.restore()
+        # Qt would fill the style's highlight over the pill; the delegate
+        # asks row_selected() instead.
+        option = QStyleOptionViewItem(option)
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().drawRow(painter, option, index)
+
+    def row_selected(self, index) -> bool:
+        selmodel = self.selectionModel()
+        return (selmodel is not None and
+                selmodel.isRowSelected(index.row(), index.parent()))
+
+    def _draw_category(self, painter, rect, index, colors) -> None:
+        """A dim NAME · count label with a hairline after it."""
+        name = str(self._model().data(index))
+        if self._previewing and name.isdigit():
+            name = f'window {name}'
+        label = f'{name} · {self._model().rowCount(index)}'.upper()
+        font = glass.title_font(self.font())
+        metrics = QFontMetrics(font)
+        painter.setFont(font)
+        painter.setPen(colors.dim)
+        text_rect = rect.adjusted(8, 0, 0, 0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, label)
+        left = text_rect.left() + metrics.horizontalAdvance(label) + 10
+        if left < rect.right() - 8:
+            painter.fillRect(QRectF(left, rect.center().y(),
+                                    rect.right() - 8 - left, 1),
+                             colors.border)
+
+    def drawBranches(self, painter, rect, index):
+        """In the picker, the indentation holds the tab's favicon."""
+        if not self._glassy:
+            super().drawBranches(painter, rect, index)
+            return
+        if not self._previewing or not index.parent().isValid():
+            return
+        tab = self._tab_for(str(self._model().data(index.sibling(
+            index.row(), 0))))
+        if tab is None:
+            return
+        icon = tab.icon()
+        if icon.isNull():
+            return
+        size = min(rect.height() - 8, QFontMetrics(self.font()).height())
+        target = QRect(0, 0, size, size)
+        target.moveCenter(rect.center() + QPoint(4, 0))
+        icon.paint(painter, target)
+
+    def _tab_for(self, data: str):
+        """The tab behind a tab completion's [win_id/]index, or None."""
+        win_id, _sep, index = data.rpartition('/')
+        try:
+            win = int(win_id) if win_id else self._win_id
+            idx = int(index) - 1
+            tabbed_browser = objreg.get('tabbed-browser', scope='window',
+                                        window=win)
+        except (ValueError, KeyError, objreg.RegistryUnavailableError):
+            return None
+        if not 0 <= idx < tabbed_browser.widget.count():
+            return None
+        return tabbed_browser.widget.widget(idx)
+
+    def _update_preview(self) -> None:
+        """Preview the selected item, or the first one like telescope."""
+        if not self._glassy or not self.isVisible():
+            return
+        self._backdrop.update()  # the match counter
+        if not self._previewing:
+            return
+        model = self._model()
+        idx = self._selection_model().currentIndex()
+        if not idx.isValid() or not idx.parent().isValid():
+            idx = model.first_item()
+        if not idx.isValid():
+            self._preview.clear()
+            return
+        data = model.data(idx.sibling(idx.row(), 0))
+        tab = self._tab_for(str(data))
+        if tab is not self._preview.current_tab():
+            self._preview.set_tab(tab)
+
     def _resize_columns(self):
         """Resize the completion columns based on column_widths."""
         if self.model() is None:
             return
-        width = self.size().width()
+        width = self.viewport().width()
         column_widths = self._model().column_widths
         pixel_widths = [(width * perc // 100) for perc in column_widths]
 
         bar = self.verticalScrollBar()
         assert bar is not None
-        delta = bar.sizeHint().width()
+        if self._previewing and len(pixel_widths) > self._TITLE_COLUMN:
+            # The first column also holds the favicon gutter; the title
+            # gives up the room.
+            gutter = self.indentation()
+            pixel_widths[0] += gutter
+            pixel_widths[self._TITLE_COLUMN] = max(
+                pixel_widths[self._TITLE_COLUMN] - gutter, 0)
+        delta = 0 if self._glassy else bar.sizeHint().width()
         for i, width in reversed(list(enumerate(pixel_widths))):
             if width > delta:
                 pixel_widths[i] -= delta
@@ -367,6 +645,7 @@ class CompletionView(QTreeView):
 
         if model is None:
             self._active = False
+            self._set_mode(glassy=False, previewing=False)
             self.hide()
             return
 
@@ -374,11 +653,15 @@ class CompletionView(QTreeView):
         model.setParent(self)
         self._active = True
         self.pattern = None
+        self._set_mode(glassy=glass.enabled(),
+                       previewing=(model.tab_preview and
+                                   config.val.completion.tab_preview))
         self._maybe_show()
 
         self._resize_columns()
         for i in range(model.rowCount()):
             self.expand(model.index(i, 0))
+        self._update_preview()
 
     def set_pattern(self, pattern: str) -> None:
         """Set the pattern on the underlying model."""
@@ -395,6 +678,7 @@ class CompletionView(QTreeView):
             self._selection_model().clear()
             self._maybe_update_geometry()
             self._maybe_show()
+            self._update_preview()
 
     def _maybe_show(self):
         if (config.val.completion.show == 'always' and
@@ -449,11 +733,15 @@ class CompletionView(QTreeView):
             return
         data = str(self._model().data(indexes[0]))
         self.selection_changed.emit(data)
+        self._update_preview()
 
     def resizeEvent(self, e):
         """Extend resizeEvent to adjust column size."""
         super().resizeEvent(e)
+        self._place_chrome()
         self._resize_columns()
+        if self._glassy and self.isVisible():
+            self._frost.schedule()
 
     def showEvent(self, e):
         """Adjust the completion size and scroll when it's freshly shown."""
@@ -462,6 +750,15 @@ class CompletionView(QTreeView):
         if scrollbar is not None:
             scrollbar.setValue(scrollbar.minimum())
         super().showEvent(e)
+        if self._glassy:
+            self._frost.refresh()
+        self._update_preview()
+
+    def hideEvent(self, e):
+        """Drop the previewed tab and the glass, nothing is kept around."""
+        super().hideEvent(e)
+        self._preview.clear()
+        self._frost.clear()
 
     @cmdutils.register(instance='completion',
                        modes=[usertypes.KeyMode.command], scope='window')
@@ -491,3 +788,19 @@ class CompletionView(QTreeView):
             sel = False
 
         utils.set_clipboard(text, selection=sel)
+
+
+class _Backdrop(QWidget):
+
+    """Paints the glass panel and cards under the list's viewport."""
+
+    def __init__(self, view: CompletionView) -> None:
+        super().__init__(view)
+        self._view = view
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.hide()
+
+    def paintEvent(self, e):
+        painter = QPainter(self)
+        self._view.paint_backdrop(painter)

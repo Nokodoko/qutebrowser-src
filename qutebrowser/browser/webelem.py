@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 JsValueType: TypeAlias = int | float | str | None
 
+# How long a fake click's Shift stays recorded for a window request it causes.
+_FAKE_CLICK_SHIFT_MS = 1000
+
 if machinery.IS_QT6:
     KeyboardModifierType: TypeAlias = Qt.KeyboardModifier
 else:
@@ -355,12 +358,20 @@ class AbstractWebElement(collections.abc.MutableMapping[str, str]):
             QMouseEvent(QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton, modifiers),
         ]
 
+        def _clear_fake_click_shift() -> None:
+            self._tab.data.fake_click_shift = False
+
         def _send_events_after_delay() -> None:
             """Delay clicks to workaround timing issue in e2e tests on 6.7."""
+            # The page's window request arrives after the click, with no
+            # modifiers attached; createWindow reads the Shift from here.
+            self._tab.data.fake_click_shift = bool(
+                modifiers & Qt.KeyboardModifier.ShiftModifier)
             for evt in events:
                 self._tab.send_event(evt)
 
             QTimer.singleShot(0, self._move_text_cursor)
+            QTimer.singleShot(_FAKE_CLICK_SHIFT_MS, _clear_fake_click_shift)
 
         QTimer.singleShot(10, _send_events_after_delay)
 

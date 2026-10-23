@@ -252,6 +252,7 @@ class KeyMode(enum.Enum):
     insert = enum.auto()  #: Insert mode (passing through most keys)
     passthrough = enum.auto()  #: Passthrough mode (passing through all keys)
     caret = enum.auto()  #: Caret mode (moving cursor with keys)
+    tile = enum.auto()  #: Tile mode (dwm-style tag and tiling keys)
     set_mark = enum.auto()
     jump_mark = enum.auto()
     record_macro = enum.auto()

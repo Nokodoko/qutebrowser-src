@@ -26,7 +26,7 @@ from qutebrowser.utils import (message, usertypes, log, qtutils, urlutils,
 from qutebrowser.utils.usertypes import KeyMode
 from qutebrowser.misc import editor, guiprocess, objects
 from qutebrowser.completion.models import urlmodel, miscmodels
-from qutebrowser.mainwindow import mainwindow, windowundo
+from qutebrowser.mainwindow import mainwindow, windowundo, tiling
 
 
 class CommandDispatcher:
@@ -276,6 +276,193 @@ class CommandDispatcher:
 
         to_pin = not tab.data.pinned
         tab.set_pinned(to_pin)
+
+    # ---- dwm-style tags and tiling ---------------------------------------
+
+    def _tiles(self):
+        return self._tabbed_browser.widget.tiles
+
+    @staticmethod
+    def _tag_mask(tag: str) -> int:
+        """Parse a tag argument: 1-9, or 'all' (dwm MOD+0)."""
+        if tag == 'all':
+            return tiling.TAGMASK
+        try:
+            return tiling.tag_mask(int(tag))
+        except ValueError:
+            raise cmdutils.CommandError(
+                f"Invalid tag {tag!r}, expected 1-{tiling.NUM_TAGS} or 'all'")
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_view(self, tag: str = 'prev', count: int | None = None) -> None:
+        """View the tabs on a tag (dwm view).
+
+        Args:
+            tag: The tag number (1-9), 'all' for every tag, or 'prev' to go
+                 back to the previously viewed tagset.
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        mask = 0 if tag == 'prev' else self._tag_mask(tag)
+        self._tiles().view(mask)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_toggle_view(self, tag: str, count: int | None = None) -> None:
+        """Add or remove a tag from the viewed tagset (dwm toggleview).
+
+        Args:
+            tag: The tag number (1-9).
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        self._tiles().toggleview(self._tag_mask(tag))
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag(self, tag: str, count: int | None = None) -> None:
+        """Move the current tab to a tag (dwm tag).
+
+        Args:
+            tag: The tag number (1-9) or 'all'.
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        self._apply_tags(self._current_widget(), self._tag_mask(tag))
+
+    def _apply_tags(self, tab, mask: int) -> None:
+        """Set a tab's tags, reporting zellij tabs that are full."""
+        full = self._tabbed_browser.widget.set_tab_tags(tab, mask)
+        if full:
+            tiles = self._tiles()
+            names = ', '.join(f"{n} ({tiles.name_of(n)})" for n in full)
+            raise cmdutils.CommandError(
+                f"Tab {names} is full ({tiles.limit()} browser tabs max)")
+
+    @cmdutils.register(instance='command-dispatcher', scope='window',
+                       maxsplit=0)
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_rename(self, name: str = '', count: int | None = None) -> None:
+        """Name the viewed tag, like zellij's rename-tab.
+
+        Args:
+            name: The new name; empty restores `Tab #N`.
+            count: The tag number to rename instead of the viewed one.
+        """
+        tiles = self._tiles()
+        tag = count if count is not None else tiling.lowest_tag(tiles.seltags)
+        if not 1 <= tag <= tiling.NUM_TAGS:
+            raise cmdutils.CommandError(
+                f"Invalid tag {tag}, expected 1-{tiling.NUM_TAGS}")
+        tiles.rename(tag, name)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('count', value=cmdutils.Value.count)
+    def tag_toggle(self, tag: str, count: int | None = None) -> None:
+        """Add or remove a tag on the current tab (dwm toggletag).
+
+        A tab always keeps at least one tag.
+
+        Args:
+            tag: The tag number (1-9).
+            count: The tag number, overrides `tag`.
+        """
+        if count is not None:
+            tag = str(count)
+        tab = self._current_widget()
+        new = tab.data.tags ^ self._tag_mask(tag)
+        if new:
+            self._apply_tags(tab, new)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('layout', choices=['tile', 'monocle', 'toggle'])
+    def tile_layout(self, layout: str = 'toggle') -> None:
+        """Set the tiling layout of this window (dwm setlayout).
+
+        Args:
+            layout: `tile`, `monocle`, or `toggle` between the two.
+        """
+        self._tiles().set_layout(layout)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('direction', choices=['next', 'prev'])
+    def tile_focus(self, direction: str = 'next') -> None:
+        """Focus the next/previous tab in the one stack (zellij j/k).
+
+        Every tag is a zellij tab and its browser tabs are the panes, in one
+        flat stack. Stepping past the last pane of the viewed tag moves on to
+        the first pane of the next tag and the view follows, so the browser
+        shifts into that zellij tab with the selected pane.
+
+        Args:
+            direction: `next` or `prev`.
+        """
+        tiles = self._tiles()
+        widget = self._tabbed_browser.widget
+        tabs = [(widget.widget(i), tiling.tags_of(widget.widget(i)))
+                for i in range(widget.count())]
+        step = 1 if direction == 'next' else -1
+        hit = tiling.step_focus(tabs, self._current_widget(), tiles.seltags,
+                                step)
+        if hit is None:
+            return
+        target, tag = hit
+        if not tiles.seltags & tiling.tag_mask(tag):
+            tiles.view(tiling.tag_mask(tag))
+        widget.setCurrentWidget(target)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_zoom(self) -> None:
+        """Swap the current tab with the master (dwm zoom).
+
+        If the current tab already is the master, the next visible tab
+        becomes master instead.
+        """
+        visible = self._tiles().visible_tabs()
+        current = self._current_widget()
+        if len(visible) < 2 or current not in visible:
+            return
+        target = visible[1] if current is visible[0] else current
+        bar = self._tabbed_browser.widget.tabBar()
+        src = self._tabbed_browser.widget.indexOf(target)
+        dst = self._tabbed_browser.widget.indexOf(visible[0])
+        bar.moveTab(src, dst)
+        self._tabbed_browser.widget.setCurrentWidget(target)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_mfact(self, value: str = '+0.05') -> None:
+        """Change the master column width (dwm setmfact).
+
+        Args:
+            value: A delta like `+0.05` / `-0.05`, or an absolute fraction
+                   like `0.55`.
+        """
+        try:
+            delta = float(value)
+        except ValueError:
+            raise cmdutils.CommandError(f"Invalid mfact {value!r}")
+        tiles = self._tiles()
+        new = tiles.params.mfact + delta if value[0] in '+-' else delta
+        tiles.set_mfact(new)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window')
+    def tile_nmaster(self, value: str = '+1') -> None:
+        """Change the number of master tabs (dwm incnmaster).
+
+        Args:
+            value: A delta like `+1` / `-1`, or an absolute count.
+        """
+        try:
+            delta = int(value)
+        except ValueError:
+            raise cmdutils.CommandError(f"Invalid nmaster {value!r}")
+        tiles = self._tiles()
+        new = tiles.params.nmaster + delta if value[0] in '+-' else delta
+        tiles.set_nmaster(new)
 
     @cmdutils.register(instance='command-dispatcher', name='open',
                        maxsplit=0, scope='window')

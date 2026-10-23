@@ -74,7 +74,12 @@ class CompletionItemDelegate(QStyledItemDelegate):
         self._opt = None
         self._doc = None
         self._style = None
+        self._index = None
         super().__init__(parent)
+
+    def _glass(self) -> bool:
+        """Whether the view paints the glass chrome (and its own rows)."""
+        return getattr(self.parent(), 'glass', False)
 
     def _draw_background(self):
         """Draw the background of an ItemViewItem."""
@@ -132,6 +137,9 @@ class CompletionItemDelegate(QStyledItemDelegate):
             text_rect.adjust(0, -1, 0, -1)
         else:
             text_rect.adjust(0, -2, 0, -2)
+        if self._glass():
+            # Center the text in the taller pill row (see sizeHint).
+            text_rect.adjust(4, 4, 0, 4)
         self._painter.save()
         state = self._opt.state
         if state & QStyle.StateFlag.State_Enabled and state & QStyle.StateFlag.State_Active:
@@ -173,7 +181,16 @@ class CompletionItemDelegate(QStyledItemDelegate):
         clip = QRectF(0, 0, rect.width(), rect.height())
         self._painter.save()
 
-        if self._opt.state & QStyle.StateFlag.State_Selected:
+        if self._glass():
+            # The item's main column stands out, the others recede.
+            colors = config.val.colors.glass
+            view = self.parent()
+            selected = view.row_selected(self._index)
+            if col == view.primary_column():
+                color = colors.selected.fg if selected else colors.fg
+            else:
+                color = colors.dim.fg
+        elif self._opt.state & QStyle.StateFlag.State_Selected:
             color = config.cache['colors.completion.item.selected.fg']
         elif not self._opt.state & QStyle.StateFlag.State_Enabled:
             color = config.cache['colors.completion.category.fg']
@@ -223,7 +240,9 @@ class CompletionItemDelegate(QStyledItemDelegate):
             pattern = view.pattern
             columns_to_filter = index.model().columns_to_filter(index)
             if index.column() in columns_to_filter and pattern:
-                if self._opt.state & QStyle.StateFlag.State_Selected:
+                if self._glass():
+                    color = config.val.colors.glass.match.fg
+                elif self._opt.state & QStyle.StateFlag.State_Selected:
                     color = config.val.colors.completion.item.selected.match.fg
                 else:
                     color = config.val.colors.completion.match.fg
@@ -287,7 +306,8 @@ class CompletionItemDelegate(QStyledItemDelegate):
         size = self._style.sizeFromContents(QStyle.ContentsType.CT_ItemViewItem, self._opt,
                                             docsize, self._opt.widget)
         qtutils.ensure_valid(size)
-        return size + QSize(10, 3)
+        # The tab picker's rows are pills and get room to breathe.
+        return size + QSize(10, 11 if self._glass() else 3)
 
     def paint(self, painter, option, index):
         """Override the QStyledItemDelegate paint function.
@@ -298,12 +318,15 @@ class CompletionItemDelegate(QStyledItemDelegate):
             index: const QModelIndex & index
         """
         self._painter = painter
+        self._index = index
         self._painter.save()
         self._opt = QStyleOptionViewItem(option)
         self.initStyleOption(self._opt, index)
         self._style = self._opt.widget.style()
 
-        self._draw_background()
+        if not self._glass():
+            # The tab picker's view paints the row itself (drawRow).
+            self._draw_background()
         self._draw_icon()
         self._draw_text(index)
         self._draw_focus_rect()

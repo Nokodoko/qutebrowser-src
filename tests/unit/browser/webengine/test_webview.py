@@ -9,8 +9,10 @@ import mimetypes
 import pytest
 webview = pytest.importorskip('qutebrowser.browser.webengine.webview')
 
+from qutebrowser.qt.core import Qt
 from qutebrowser.qt.webenginecore import QWebEnginePage
-from qutebrowser.utils import qtutils
+from qutebrowser.browser import browsertab
+from qutebrowser.utils import qtutils, usertypes
 
 from helpers import testutils
 
@@ -139,3 +141,46 @@ def test_suffixes_workaround_choosefiles_args(
     assert len(mocked_super().chooseFiles.call_args_list) == 1
     called_with = mocked_super().chooseFiles.call_args_list[0][0][2]
     assert sorted(called_with) == sorted(expected)
+
+
+@pytest.mark.parametrize("background, shift, expected", [
+    (False, False, usertypes.ClickTarget.tab),
+    (False, True, usertypes.ClickTarget.tab_bg),
+    (True, False, usertypes.ClickTarget.tab),
+    (True, True, usertypes.ClickTarget.tab),
+])
+def test_browser_tab_target(background, shift, expected):
+    target = webview._browser_tab_target(background=background, shift=shift)
+    assert target == expected
+
+
+@pytest.mark.parametrize("keyboard_shift, fake_click_shift, expected", [
+    # window.open() / target=_blank: no Shift anywhere
+    (False, False, usertypes.ClickTarget.tab),
+    # Shift + middle-click
+    (True, False, usertypes.ClickTarget.tab_bg),
+    # a tab-bg hint on a non-link element
+    (False, True, usertypes.ClickTarget.tab_bg),
+])
+def test_create_window_browser_tab(
+    mocker,
+    config_stub,
+    keyboard_shift,
+    fake_click_shift,
+    expected,
+):
+    config_stub.val.tabs.background = False
+    modifiers = (Qt.KeyboardModifier.ShiftModifier if keyboard_shift
+                 else Qt.KeyboardModifier.NoModifier)
+    mocker.patch.object(webview.QApplication, "keyboardModifiers",
+                        return_value=modifiers)
+    get_tab = mocker.patch.object(webview.shared, "get_tab")
+    view = mocker.Mock(
+        _win_id=0,
+        _tabdata=browsertab.TabData(fake_click_shift=fake_click_shift),
+    )
+
+    webview.WebEngineView.createWindow(
+        view, QWebEnginePage.WebWindowType.WebBrowserTab)
+
+    get_tab.assert_called_once_with(0, expected)

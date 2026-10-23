@@ -20,7 +20,7 @@ from qutebrowser.qt.core import pyqtSignal, pyqtSlot, QTimer, QUrl, QPoint
 
 from qutebrowser.config import config
 from qutebrowser.keyinput import modeman
-from qutebrowser.mainwindow import tabwidget, mainwindow
+from qutebrowser.mainwindow import tabwidget, mainwindow, tiling
 from qutebrowser.browser import signalfilter, browsertab, history
 from qutebrowser.utils import (log, usertypes, utils, qtutils,
                                urlutils, message, jinja, version)
@@ -213,6 +213,9 @@ class TabbedBrowser(QWidget):
             self.tabopen)  # type: ignore[arg-type,unused-ignore]
         self.widget.currentChanged.connect(self._on_current_changed)
         self.cur_fullscreen_requested.connect(self.widget.tab_bar().maybe_hide)
+        # A fullscreen tab takes the whole tile area.
+        self.cur_fullscreen_requested.connect(
+            lambda _on: self.widget.tiles.schedule())
 
         self.widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -244,6 +247,26 @@ class TabbedBrowser(QWidget):
         self.tab_deque = TabDeque()
         config.instance.changed.connect(self._on_config_changed)
         quitter.instance.shutting_down.connect(self.shutdown)
+        qapp = QApplication.instance()
+        assert isinstance(qapp, QApplication), qapp
+        qapp.focusChanged.connect(self._on_focus_changed)
+
+    def _on_focus_changed(self, _old, new):
+        """Switch to a background tab whose widget got the keyboard focus.
+
+        QtWebEngine focuses a tab's widget when a page raises it via
+        window.focus() or DevTools activates it. The widget is hidden, so the
+        focus is the only trace of the request.
+        """
+        if new is None or self.is_shutting_down:
+            return
+        current = self.widget.currentWidget()
+        for tab in self.widgets():
+            if tab is not current and tab.isAncestorOf(new):
+                log.webview.debug("Background tab {!r} got focus, switching "
+                                  "to it".format(tab))
+                self.widget.setCurrentWidget(tab)
+                return
 
     def _update_stack_size(self):
         newsize = config.instance.get('tabs.undo_stack_size')
@@ -607,6 +630,7 @@ class TabbedBrowser(QWidget):
             background: bool | None = None,
             related: bool = True,
             idx: int | None = None,
+            tags: int | None = None,
     ) -> browsertab.AbstractTab:
         """Open a new tab with a given URL.
 
@@ -625,6 +649,10 @@ class TabbedBrowser(QWidget):
                          - Explicitly opened tabs are at the very right
                            (related=False)
             idx: The index where the new tab should be opened.
+            tags: The dwm tag mask to put the tab on. None (the default)
+                  places it on the viewed tag, spilling to the next tag
+                  with room; session restore passes the saved mask so the
+                  spill logic does not rearrange a restored window.
 
         Return:
             The opened WebView instance.
@@ -652,12 +680,30 @@ class TabbedBrowser(QWidget):
         if idx is None:
             idx = self._get_new_tab_idx(related)
         self.widget.insertTab(idx, tab, "")
+        if background is None:
+            background = config.val.tabs.background
+        if tags is None:
+            # dwm: a new client gets the viewed tags (or its rule's tag);
+            # zellij: a full tab spills its new pane into the next tab.
+            # A background tab never pulls the view to a rule's tag.
+            self.widget.place_new_tab(
+                tab, url=url,
+                follow=not background and config.val.tabs.tiling.rule_follow)
+            if not tiling.is_visible(tab.data.tags, self.widget.tiles.seltags):
+                # A rule put the tab on a tag we are not following to.
+                # Making it current would pull the view there anyway
+                # (setCurrentIndex views an off-view tab's tag), so it
+                # stays in the background, like dwm leaves focus put.
+                background = True
+        else:
+            # Session restore: saved tags are the rule, never re-applied.
+            tab.data.tags = tags & tiling.TAGMASK or 1
+            tab.data.tag_rule_done = True
+            self.widget.tiles.schedule()
 
         if url is not None:
             tab.load_url(url)
 
-        if background is None:
-            background = config.val.tabs.background
         if background:
             # Make sure the background tab has the correct initial size.
             # With a foreground tab, it's going to be resized correctly by the
@@ -813,6 +859,13 @@ class TabbedBrowser(QWidget):
         except TabDeletedError:
             # We can get signals for tabs we already deleted...
             return
+
+        if not tab.data.tag_rule_done:
+            # dwm applies rules at map time: the first real page decides.
+            self.widget.apply_tag_rule(
+                tab, url,
+                follow=(tab is self.widget.currentWidget())
+                and config.val.tabs.tiling.rule_follow)
 
         if not self.widget.page_title(idx):
             self.widget.set_page_title(idx, url.toDisplayString())

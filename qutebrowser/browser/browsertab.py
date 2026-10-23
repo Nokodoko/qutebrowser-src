@@ -114,11 +114,15 @@ class TabData:
                      Only used for QtWebKit.
         override_target: Override for open_target for fake clicks (like hints).
                          Only used for QtWebKit.
+        fake_click_shift: Whether a fake click in flight was sent with Shift.
+                          Only used for QtWebEngine.
         pinned: Flag to pin the tab.
         fullscreen: Whether the tab has a video shown fullscreen currently.
         netrc_used: Whether netrc authentication was performed.
         input_mode: current input mode for the tab.
         splitter: InspectorSplitter used to show inspector inside the tab.
+        tag_rule_done: Whether the tag rule has been evaluated for this tab
+                       (rules fire once).
     """
 
     keep_icon: bool = False
@@ -126,8 +130,13 @@ class TabData:
     inspector: Optional['AbstractWebInspector'] = None
     open_target: usertypes.ClickTarget = usertypes.ClickTarget.normal
     override_target: usertypes.ClickTarget | None = None
+    fake_click_shift: bool = False
     pinned: bool = False
     fullscreen: bool = False
+    #: dwm-style tag bitmask; bit N-1 set means the tab is on tag N.
+    tags: int = 1
+    #: Whether the tag rule has been evaluated (rules fire once per tab).
+    tag_rule_done: bool = False
     netrc_used: bool = False
     input_mode: usertypes.KeyMode = usertypes.KeyMode.normal
     last_navigation: usertypes.NavigationRequest | None = None

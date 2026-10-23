@@ -31,12 +31,16 @@ class CompletionModel(QAbstractItemModel):
     Attributes:
         column_widths: The width percentages of the columns used in the
                        completion view.
+        tab_preview: Whether items are [win_id/]tab indices the view can
+                     preview.
         _categories: The sub-categories.
     """
 
-    def __init__(self, *, column_widths=(30, 70, 0), parent=None):
+    def __init__(self, *, column_widths=(30, 70, 0), tab_preview=False,
+                 parent=None):
         super().__init__(parent)
         self.column_widths = column_widths
+        self.tab_preview = tab_preview
         self._categories: MutableSequence[BaseCategory] = []
 
     def _cat_from_idx(self, index: QModelIndex) -> BaseCategory | None:

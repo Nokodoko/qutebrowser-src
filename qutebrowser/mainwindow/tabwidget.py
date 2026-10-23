@@ -10,16 +10,33 @@ import dataclasses
 from typing import Any
 
 from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, Qt, QSize, QRect, QPoint,
-                          QTimer, QUrl)
+                          QPointF, QTimer, QUrl)
 from qutebrowser.qt.widgets import (QTabWidget, QTabBar, QSizePolicy, QProxyStyle,
                              QStyle, QStylePainter, QStyleOptionTab,
-                             QCommonStyle)
-from qutebrowser.qt.gui import QIcon, QPalette, QColor
+                             QCommonStyle, QStackedWidget, QWidget)
+from qutebrowser.qt.gui import QIcon, QPalette, QColor, QPainter, QPolygonF
 
 from qutebrowser.utils import qtutils, objreg, utils, usertypes, log
 from qutebrowser.config import config, stylesheet
 from qutebrowser.misc import objects, debugcachestats
 from qutebrowser.browser import browsertab
+from qutebrowser.mainwindow import tiling, zellijbar
+
+
+class _TabProxy(QWidget):
+
+    """The page QTabWidget holds in place of a tab.
+
+    The real tab widgets live in the TileArea so several can be visible at
+    once; QTabWidget only needs one page per tab to keep its indices, titles
+    and current-index machinery working.
+    """
+
+    def __init__(self, tab: QWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.tab = tab
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
 class TabWidget(QTabWidget):
@@ -50,12 +67,216 @@ class TabWidget(QTabWidget):
             QTimer.singleShot, 0, self.update_tab_titles))
         bar.currentChanged.connect(self._on_current_changed)
         bar.new_tab_requested.connect(self._on_new_tab_requested)
+        bar.tabMoved.connect(lambda *_: self._sync_tiles())
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setDocumentMode(True)
         self.setUsesScrollButtons(True)
         bar.setDrawBase(False)
+        stack = self.findChild(QStackedWidget)
+        assert stack is not None
+        self.tiles = tiling.TileArea(stack)
+        self._stack_watcher = tiling.cover(stack, self.tiles)
+        self.tiles.view_changed.connect(self._on_view_changed)
+        self.tiles.arranged.connect(self._update_bar_visibility)
+        self.zellij_bar = zellijbar.ZellijBar(self.tiles, bar)
         self._init_config()
         config.instance.changed.connect(self._init_config)
+
+    # ---- tab <-> proxy mapping -------------------------------------------
+    #
+    # These shadow the QTabWidget accessors for every Python caller so the
+    # rest of qutebrowser keeps talking about real tabs by index.
+
+    def widget(self, idx: int) -> QWidget | None:  # type: ignore[override]
+        """Get the tab at the given index (the proxy's tab)."""
+        page = super().widget(idx)
+        if isinstance(page, _TabProxy):
+            return page.tab
+        return page
+
+    def indexOf(self, widget: QWidget | None) -> int:  # type: ignore[override]  # noqa: N802
+        """Get the index of a tab or of its proxy."""
+        if widget is None:
+            return -1
+        if not isinstance(widget, _TabProxy):
+            for idx in range(self.count()):
+                page = super().widget(idx)
+                if isinstance(page, _TabProxy) and page.tab is widget:
+                    return idx
+        return super().indexOf(widget)
+
+    def currentWidget(self) -> QWidget | None:  # type: ignore[override]  # noqa: N802
+        """Get the current tab."""
+        idx = self.currentIndex()
+        return None if idx == -1 else self.widget(idx)
+
+    def setCurrentWidget(self, widget: QWidget | None) -> None:  # type: ignore[override]  # noqa: N802
+        """Make the given tab current."""
+        idx = self.indexOf(widget)
+        if idx != -1:
+            self.setCurrentIndex(idx)
+
+    def setCurrentIndex(self, idx: int) -> None:  # noqa: N802
+        """Make the tab at ``idx`` current, viewing its tag if needed.
+
+        QTabBar refuses to select a hidden tab, and tabs off the viewed tags
+        are hidden in the bar. So first bring the tab's tag into view (dwm
+        follows focus to an off-view client the same way), re-show the bar
+        tabs for that view, then select.
+        """
+        tab = self.widget(idx)
+        if tab is not None and not self.tab_bar().isTabVisible(idx):
+            tags = tiling.tags_of(tab)
+            if not tiling.is_visible(tags, self.tiles.seltags):
+                self.tiles.view(tags & -tags)
+            self._update_bar_visibility()
+        super().setCurrentIndex(idx)
+
+    def _wrap(self, page: QWidget) -> QWidget:
+        """Move a new tab into the tile area and return its proxy page."""
+        self.tiles.attach(page)
+        return _TabProxy(page)
+
+    def removeTab(self, idx: int) -> None:  # noqa: N802
+        """Remove a tab and its proxy; the caller deletes the tab."""
+        page = super().widget(idx)
+        super().removeTab(idx)
+        if isinstance(page, _TabProxy):
+            self.tiles.detach(page.tab)
+            page.deleteLater()
+
+    def _sync_tiles(self) -> None:
+        """Tell the tile area the current tab order and focus."""
+        tabs = [self.widget(i) for i in range(self.count())]
+        self.tiles.set_tabs([t for t in tabs if t is not None])
+        self.tiles.set_current(self.currentWidget())
+        self.tiles.raise_()
+
+    def _follow_current(self) -> None:
+        """Bring a focused off-view tab's first tag into view.
+
+        Index-based commands (tab-focus, tab-next, undo, ...) can land on a
+        tab whose tags are not viewed; dwm switches the view in that case
+        rather than focusing something invisible.
+        """
+        current = self.currentWidget()
+        if current is None:
+            return
+        tags = tiling.tags_of(current)
+        if not tiling.is_visible(tags, self.tiles.seltags):
+            self.tiles.view(tags & -tags)
+
+    @pyqtSlot()
+    def _update_bar_visibility(self) -> None:
+        """Only list the tabs on the viewed tags in the tab bar."""
+        bar = self.tab_bar()
+        visible = set(self.tiles.visible_tabs())
+        for idx in range(self.count()):
+            tab = self.widget(idx)
+            show = tab in visible or idx == self.currentIndex()
+            if bar.isTabVisible(idx) != show:
+                bar.setTabVisible(idx, show)
+
+    def set_tab_tags(self, tab: QWidget, mask: int) -> list[int]:
+        """Put a tab on the given tags and refocus if it left the view.
+
+        Return:
+            The tags that refused the tab because they are full
+            (`tabs.tiling.max_per_tag`); the tab is left where it was then.
+        """
+        mask &= tiling.TAGMASK
+        if not mask:
+            return []
+        others = self.tiles.tag_list(exclude=tab)
+        full = tiling.tags_over_limit(mask, tiling.tags_of(tab), others,
+                                      self.tiles.limit())
+        if full:
+            return full
+        tab.data.tags = mask  # type: ignore[attr-defined]
+        self.tiles.schedule()
+        self._on_view_changed(self.tiles.seltags)
+        return []
+
+    def place_new_tab(self, tab: QWidget, url: QUrl | None = None,
+                      follow: bool = True) -> None:
+        """Give a new tab its tags, by rule or by viewing the current tag.
+
+        When ``url`` matches a dwm-style rule (``tabs.tiling.rule_tag`` set
+        for that URL pattern), the tab starts on the rule's tag instead of
+        the viewed one; a full rule tag spills to the next tag with room
+        just like a full viewed tag does. Otherwise dwm gives a new client
+        the monitor's tagset; zellij tabs cap their panes, so a full tag
+        hands the new browser tab to the next tag that has room and the view
+        follows it.
+
+        Args:
+            tab: The tab being placed.
+            url: The URL the tab is opened with, if any. Rules are only
+                 evaluated here when it is a real page.
+            follow: Whether placing on an unviewed tag may switch the view
+                    (a foreground tab follows, a background tab does not).
+        """
+        rule = 0
+        if url is not None and tiling.is_rule_url(url):
+            tab.data.tag_rule_done = True  # type: ignore[attr-defined]
+            rule = tiling.rule_tag(url)
+        if rule > 0:
+            start = rule
+        else:
+            start = tiling.lowest_tag(self.tiles.seltags) or 1
+        others = self.tiles.tag_list(exclude=tab)
+        target = tiling.next_tag_with_room(start, others, self.tiles.limit())
+        tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
+        if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
+            # A rule-placed tab only pulls the view when following (dwm
+            # leaves the client where it is); the default spill always did.
+            if follow or rule == 0:
+                self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
+        self.tiles.schedule()
+
+    def apply_tag_rule(self, tab: QWidget, url: QUrl, follow: bool) -> None:
+        """Move a tab opened without URL onto its rule's tag, once.
+
+        dwm applies rules at map time only: the first real page a tab
+        navigates to decides its tag and no later navigation ever moves it
+        again. A tab that is already on the rule's tag stays put.
+
+        Args:
+            tab: The tab that just navigated.
+            url: The URL it navigated to.
+            follow: Whether moving to an unviewed tag may switch the view.
+        """
+        if tab.data.tag_rule_done or not tiling.is_rule_url(url):  # type: ignore[attr-defined]
+            return
+        tab.data.tag_rule_done = True  # type: ignore[attr-defined]
+        tag = tiling.rule_tag(url)
+        if tag == 0 or tag in tiling.tag_numbers(tiling.tags_of(tab)):
+            return
+        others = self.tiles.tag_list(exclude=tab)
+        target = tiling.next_tag_with_room(tag, others, self.tiles.limit())
+        tab.data.tags = tiling.tag_mask(target)  # type: ignore[attr-defined]
+        self.tiles.schedule()
+        if not tiling.is_visible(tab.data.tags, self.tiles.seltags):  # type: ignore[attr-defined]
+            if follow:
+                self.tiles.view(tab.data.tags)  # type: ignore[attr-defined]
+            else:
+                # The tab left the view; keep the current tab a viewed one.
+                self._on_view_changed(self.tiles.seltags)
+
+    @pyqtSlot(int)
+    def _on_view_changed(self, seltags: int) -> None:
+        """Keep the current tab on the viewed tags, like dwm's focus(NULL)."""
+        current = self.currentWidget()
+        if current is not None and tiling.is_visible(tiling.tags_of(current), seltags):
+            return
+        visible = self.tiles.visible_tabs()
+        if visible:
+            # The bar still hides the tabs of the new view until the next
+            # relayout, and a hidden bar tab cannot be selected.
+            self._update_bar_visibility()
+            self.setCurrentWidget(visible[0])
+        else:
+            self.tiles.set_current(current)
 
     @config.change_filter('tabs')
     def _init_config(self):
@@ -247,11 +468,13 @@ class TabWidget(QTabWidget):
     def tabInserted(self, idx):
         """Update titles when a tab was inserted."""
         super().tabInserted(idx)
+        self._sync_tiles()
         self.update_tab_titles()
 
     def tabRemoved(self, idx):
         """Update titles when a tab was removed."""
         super().tabRemoved(idx)
+        self._sync_tiles()
         self.update_tab_titles()
 
     def addTab(self, page, icon_or_text, text_or_empty=None):
@@ -271,13 +494,14 @@ class TabWidget(QTabWidget):
         Return:
             The index of the newly added tab.
         """
+        proxy = self._wrap(page)
         if text_or_empty is None:
             text = icon_or_text
-            new_idx = super().addTab(page, '')
+            new_idx = super().addTab(proxy, '')
         else:
             icon = icon_or_text
             text = text_or_empty
-            new_idx = super().addTab(page, icon, '')
+            new_idx = super().addTab(proxy, icon, '')
         self.set_page_title(new_idx, text)
         return new_idx
 
@@ -300,13 +524,14 @@ class TabWidget(QTabWidget):
         Return:
             The index of the newly added tab.
         """
+        proxy = self._wrap(page)
         if text_or_empty is None:
             text = icon_or_text
-            new_idx = super().insertTab(idx, page, '')
+            new_idx = super().insertTab(idx, proxy, '')
         else:
             icon = icon_or_text
             text = text_or_empty
-            new_idx = super().insertTab(idx, page, icon, '')
+            new_idx = super().insertTab(idx, proxy, icon, '')
         self.set_page_title(new_idx, text)
         return new_idx
 
@@ -314,6 +539,8 @@ class TabWidget(QTabWidget):
     def _on_current_changed(self, index):
         """Emit the tab_index_changed signal if the current tab changed."""
         self.tab_bar().on_current_changed()
+        self._sync_tiles()
+        self._follow_current()
         self.update_tab_titles()
         self.tab_index_changed.emit(index, self.count())
 
@@ -450,9 +677,13 @@ class TabBar(QTabBar):
         if option.startswith('colors.tabs.'):
             self.update()
 
+        if option == 'tabs.powerline':
+            self.update()
+
         # Clear tab size caches when appropriate
         if option in ["tabs.indicator.padding",
                       "tabs.padding",
+                      "tabs.powerline",
                       "tabs.indicator.width",
                       "tabs.min_width",
                       "tabs.pinned.shrink",
@@ -471,6 +702,10 @@ class TabBar(QTabBar):
         if config.val.tabs.show == 'switching':
             self.show()
             self._auto_hide_timer.start()
+        if config.val.tabs.powerline:
+            # A tab's chevron is drawn over the next tab's color, so the tab
+            # before the old and new current tabs needs a repaint too.
+            self.update()
 
     @pyqtSlot()
     def maybe_hide(self):
@@ -617,6 +852,8 @@ class TabBar(QTabBar):
         if indicator_width != 0:
             padding_h += indicator_padding.left + indicator_padding.right
         height = self._minimum_tab_height()
+        if config.cache['tabs.powerline'] and not self.vertical:
+            padding_h += TabBarStyle.chevron_width(height)
         width = (text_width + icon_width +
                  padding_h + indicator_width)
         min_width = config.cache['tabs.min_width']
@@ -710,6 +947,27 @@ class TabBar(QTabBar):
             Qt.TextFlag.TextShowMnemonic,
         )
 
+    def _tab_color_setting(self, idx, selected):
+        """Get the colors.tabs.* setting prefix for the tab at idx."""
+        setting = 'colors.tabs'
+        if self._tab_pinned(idx):
+            setting += '.pinned'
+        if idx == selected:
+            setting += '.selected'
+        setting += '.odd' if (idx + 1) % 2 else '.even'
+        return setting
+
+    def _tab_bg(self, idx, selected):
+        """Get the background color of the tab at idx.
+
+        Past the last tab this is the tab bar's background. TabBarStyle draws
+        a powerline chevron over the next tab's color, passed as the
+        QPalette.ColorRole.Mid of the tab's style option.
+        """
+        if idx >= self.count():
+            return QColor(config.cache['colors.tabs.bar.bg'])
+        return config.cache[self._tab_color_setting(idx, selected) + '.bg']
+
     def paintEvent(self, event):
         """Override paintEvent to draw the tabs like we want to."""
         p = QStylePainter(self)
@@ -722,17 +980,13 @@ class TabBar(QTabBar):
             tab = QStyleOptionTab()
             self.initStyleOption(tab, idx)
 
-            setting = 'colors.tabs'
-            if self._tab_pinned(idx):
-                setting += '.pinned'
-            if idx == selected:
-                setting += '.selected'
-            setting += '.odd' if (idx + 1) % 2 else '.even'
-
+            setting = self._tab_color_setting(idx, selected)
             tab.palette.setColor(QPalette.ColorRole.Window,
                                  config.cache[setting + '.bg'])
             tab.palette.setColor(QPalette.ColorRole.WindowText,
                                  config.cache[setting + '.fg'])
+            tab.palette.setColor(QPalette.ColorRole.Mid,
+                                 self._tab_bg(idx + 1, selected))
 
             indicator_color = self.tab_indicator_color(idx)
             tab.palette.setColor(QPalette.ColorRole.Base, indicator_color)
@@ -800,6 +1054,45 @@ class TabBarStyle(QProxyStyle):
     """
 
     ICON_PADDING = 4
+
+    @staticmethod
+    def chevron_width(height):
+        """Get the width of a powerline chevron for a tab of the given height."""
+        return height // 2
+
+    @staticmethod
+    def _powerline(opt):
+        """Whether to draw the given tab powerline-style."""
+        return config.cache['tabs.powerline'] and opt.shape in [
+            QTabBar.Shape.RoundedNorth, QTabBar.Shape.RoundedSouth,
+            QTabBar.Shape.TriangularNorth, QTabBar.Shape.TriangularSouth]
+
+    def _draw_chevron(self, opt, p):
+        """Draw the powerline chevron at the right edge of a tab.
+
+        The chevron points right, in the tab's own color, over the next
+        tab's color (QPalette.ColorRole.Mid, set by TabBar.paintEvent).
+
+        Args:
+            opt: QStyleOptionTab from drawControl.
+            p: QPainter from drawControl.
+        """
+        rect = opt.rect
+        width = self.chevron_width(rect.height())
+        base = rect.right() + 1 - width
+        p.fillRect(QRect(base, rect.top(), width, rect.height()),
+                   opt.palette.mid())
+        chevron = QPolygonF([
+            QPointF(base, rect.top()),
+            QPointF(rect.right() + 1, rect.top() + rect.height() / 2),
+            QPointF(base, rect.bottom() + 1),
+        ])
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(opt.palette.window())
+        p.drawPolygon(chevron)
+        p.restore()
 
     def __init__(self, style=None):
         # "useless" override as WORKAROUND for
@@ -870,6 +1163,8 @@ class TabBarStyle(QProxyStyle):
             self.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, opt, p, widget)
         elif element == QStyle.ControlElement.CE_TabBarTabShape:
             p.fillRect(opt.rect, opt.palette.window())
+            if self._powerline(opt):
+                self._draw_chevron(opt, p)
             self._draw_indicator(layouts, opt, p)
             # We use QCommonStyle rather than self.baseStyle() here because we don't want
             # any sophisticated drawing.
@@ -965,6 +1260,8 @@ class TabBarStyle(QProxyStyle):
 
         text_rect.adjust(padding.left, padding.top, -padding.right,
                          -padding.bottom)
+        if self._powerline(opt):
+            text_rect.adjust(0, 0, -self.chevron_width(opt.rect.height()), 0)
 
         indicator_width = config.cache['tabs.indicator.width']
         if indicator_width == 0:

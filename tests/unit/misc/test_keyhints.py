@@ -31,7 +31,8 @@ def expected_text(*args):
 
 @pytest.fixture
 def keyhint(qtbot, config_stub, key_config_stub):
-    """Fixture to initialize a KeyHintView."""
+    """Fixture to initialize a KeyHintView, in the stock (non-glass) look."""
+    config_stub.val.glass.enabled = False
     config_stub.val.colors.keyhint.suffix.fg = 'yellow'
     keyhint = KeyHintView(0, None)
     qtbot.add_widget(keyhint)
@@ -45,6 +46,23 @@ def test_show_and_hide(qtbot, keyhint):
             keyhint.show()
     keyhint.update_keyhint(usertypes.KeyMode.normal, '')
     assert not keyhint.isVisible()
+
+
+def test_glass(keyhint, config_stub):
+    """With glass, the typed keys recede and the label is transparent."""
+    config_stub.val.glass.enabled = True
+    config_stub.val.colors.glass.dim.fg = '#111111'
+    config_stub.val.colors.glass.match.fg = '#222222'
+    config_stub.val.bindings.default = {}
+    config_stub.val.bindings.commands = {'normal': {
+        'aa': 'message-info cmd-aa'}}
+    keyhint.update_keyhint(usertypes.KeyMode.normal, 'a')
+    assert keyhint.text() == (
+        "<table><tr><td style='color: #111111'>a</td>"
+        "<td style='color: #222222'>a</td>"
+        "<td style='padding-left: 2ex'>message-info cmd-aa</td>"
+        "</tr></table>")
+    assert 'background: transparent' in keyhint.styleSheet()
 
 
 def test_position_change(keyhint, config_stub):
