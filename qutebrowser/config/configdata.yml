@@ -2976,6 +2976,63 @@ colors.completion.scrollbar.bg:
   type: QssColor
   desc: Color of the scrollbar in the completion view.
 
+colors.completion.ivy.bg:
+  default: '#11121D'
+  type: QtColor
+  desc: Background of the panel behind the tab picker's cards
+    (`completion.tab_preview`).
+
+colors.completion.ivy.card.bg:
+  default: '#1A1B2A'
+  type: QtColor
+  desc: Background of the tab picker's result and preview cards.
+
+colors.completion.ivy.border:
+  default: '#353945'
+  type: QtColor
+  desc: Border of the tab picker's cards, chips and preview image.
+
+colors.completion.ivy.title.fg:
+  default: '#11121D'
+  type: QtColor
+  desc: Text of the title chips in the tab picker's card borders.
+
+colors.completion.ivy.title.bg:
+  default: '#7199EE'
+  type: QtColor
+  desc: Background of the title chips in the tab picker's card borders.
+
+colors.completion.ivy.fg:
+  default: '#A0A8CD'
+  type: QtColor
+  desc: Tab titles in the tab picker.
+
+colors.completion.ivy.dim.fg:
+  default: '#6B7089'
+  type: QtColor
+  desc: Secondary text in the tab picker (URLs, tab indices, window
+    headers, the match counter).
+
+colors.completion.ivy.selected.bg:
+  default: '#2A2D42'
+  type: QtColor
+  desc: Background of the selected row in the tab picker.
+
+colors.completion.ivy.selected.fg:
+  default: '#E4E7F7'
+  type: QtColor
+  desc: Text of the selected row in the tab picker.
+
+colors.completion.ivy.accent:
+  default: '#95C561'
+  type: QtColor
+  desc: Marker bar on the selected row in the tab picker.
+
+colors.completion.ivy.match.fg:
+  default: '#D7A65F'
+  type: QtColor
+  desc: Matched text in the tab picker.
+
 colors.contextmenu.bg:
   renamed: colors.contextmenu.menu.bg
 

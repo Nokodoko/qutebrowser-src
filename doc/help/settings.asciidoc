@@ -29,6 +29,17 @@
 |<<colors.completion.item.selected.border.top,colors.completion.item.selected.border.top>>|Top border color of the selected completion item.
 |<<colors.completion.item.selected.fg,colors.completion.item.selected.fg>>|Foreground color of the selected completion item.
 |<<colors.completion.item.selected.match.fg,colors.completion.item.selected.match.fg>>|Foreground color of the matched text in the selected completion item.
+|<<colors.completion.ivy.accent,colors.completion.ivy.accent>>|Marker bar on the selected row in the tab picker.
+|<<colors.completion.ivy.bg,colors.completion.ivy.bg>>|Background of the panel behind the tab picker's cards (`completion.tab_preview`).
+|<<colors.completion.ivy.border,colors.completion.ivy.border>>|Border of the tab picker's cards, chips and preview image.
+|<<colors.completion.ivy.card.bg,colors.completion.ivy.card.bg>>|Background of the tab picker's result and preview cards.
+|<<colors.completion.ivy.dim.fg,colors.completion.ivy.dim.fg>>|Secondary text in the tab picker (URLs, tab indices, window headers, the match counter).
+|<<colors.completion.ivy.fg,colors.completion.ivy.fg>>|Tab titles in the tab picker.
+|<<colors.completion.ivy.match.fg,colors.completion.ivy.match.fg>>|Matched text in the tab picker.
+|<<colors.completion.ivy.selected.bg,colors.completion.ivy.selected.bg>>|Background of the selected row in the tab picker.
+|<<colors.completion.ivy.selected.fg,colors.completion.ivy.selected.fg>>|Text of the selected row in the tab picker.
+|<<colors.completion.ivy.title.bg,colors.completion.ivy.title.bg>>|Background of the title chips in the tab picker's card borders.
+|<<colors.completion.ivy.title.fg,colors.completion.ivy.title.fg>>|Text of the title chips in the tab picker's card borders.
 |<<colors.completion.match.fg,colors.completion.match.fg>>|Foreground color of the matched text in the completion.
 |<<colors.completion.odd.bg,colors.completion.odd.bg>>|Background color of the completion widget for odd rows.
 |<<colors.completion.scrollbar.bg,colors.completion.scrollbar.bg>>|Color of the scrollbar in the completion view.
@@ -1001,6 +1012,94 @@ Foreground color of the matched text in the selected completion item.
 Type: <<types,QtColor>>
 
 Default: +pass:[#ff4444]+
+
+[[colors.completion.ivy.accent]]
+=== colors.completion.ivy.accent
+Marker bar on the selected row in the tab picker.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#95C561]+
+
+[[colors.completion.ivy.bg]]
+=== colors.completion.ivy.bg
+Background of the panel behind the tab picker's cards (`completion.tab_preview`).
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#11121D]+
+
+[[colors.completion.ivy.border]]
+=== colors.completion.ivy.border
+Border of the tab picker's cards, chips and preview image.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#353945]+
+
+[[colors.completion.ivy.card.bg]]
+=== colors.completion.ivy.card.bg
+Background of the tab picker's result and preview cards.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#1A1B2A]+
+
+[[colors.completion.ivy.dim.fg]]
+=== colors.completion.ivy.dim.fg
+Secondary text in the tab picker (URLs, tab indices, window headers, the match counter).
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#6B7089]+
+
+[[colors.completion.ivy.fg]]
+=== colors.completion.ivy.fg
+Tab titles in the tab picker.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#A0A8CD]+
+
+[[colors.completion.ivy.match.fg]]
+=== colors.completion.ivy.match.fg
+Matched text in the tab picker.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#D7A65F]+
+
+[[colors.completion.ivy.selected.bg]]
+=== colors.completion.ivy.selected.bg
+Background of the selected row in the tab picker.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#2A2D42]+
+
+[[colors.completion.ivy.selected.fg]]
+=== colors.completion.ivy.selected.fg
+Text of the selected row in the tab picker.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#E4E7F7]+
+
+[[colors.completion.ivy.title.bg]]
+=== colors.completion.ivy.title.bg
+Background of the title chips in the tab picker's card borders.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#7199EE]+
+
+[[colors.completion.ivy.title.fg]]
+=== colors.completion.ivy.title.fg
+Text of the title chips in the tab picker's card borders.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#11121D]+
 
 [[colors.completion.match.fg]]
 === colors.completion.match.fg

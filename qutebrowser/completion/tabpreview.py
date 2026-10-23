@@ -8,13 +8,18 @@ A tab that is on screen is grabbed live. A hidden webview cannot be painted,
 so the tile area hands every tab to capture() just before hiding it, and the
 preview falls back to that thumbnail. Thumbnails are scaled down when they are
 taken, so showing one is a cheap scale of a small pixmap.
+
+The ivy chrome (panel, rounded cards with titles in their top border) is
+painted here with QPainter, for both the result list and the preview pane.
 """
 
+import dataclasses
 import weakref
 
-from qutebrowser.qt.core import Qt, QSize
-from qutebrowser.qt.gui import QPixmap
-from qutebrowser.qt.widgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from qutebrowser.qt.core import Qt, QRect, QRectF, QSize, QPoint
+from qutebrowser.qt.gui import (QColor, QFont, QFontMetrics, QPainter,
+                                QPainterPath, QPen, QPixmap)
+from qutebrowser.qt.widgets import QWidget
 
 from qutebrowser.config import config, stylesheet
 from qutebrowser.utils import debug, log, utils
@@ -57,28 +62,139 @@ def snapshot(tab: QWidget) -> QPixmap | None:
     return _thumbnails.get(tab)
 
 
-class TabPreview(QFrame):
+# ---- ivy chrome -----------------------------------------------------------
 
-    """The preview pane on the right of the tab completion."""
+#: Gap around and between the cards.
+PAD = 10
+#: Corner radius of the cards.
+RADIUS = 10
+#: Space between a card's border and its content.
+INNER = 8
+
+
+@dataclasses.dataclass
+class Colors:
+
+    """The colors.completion.ivy.* settings, read once per paint."""
+
+    bg: QColor
+    card: QColor
+    border: QColor
+    title_fg: QColor
+    title_bg: QColor
+    fg: QColor
+    dim: QColor
+    selected_bg: QColor
+    selected_fg: QColor
+    accent: QColor
+    match: QColor
+
+    @classmethod
+    def from_config(cls) -> 'Colors':
+        ivy = config.val.colors.completion.ivy
+        return cls(bg=ivy.bg, card=ivy.card.bg, border=ivy.border,
+                   title_fg=ivy.title.fg, title_bg=ivy.title.bg,
+                   fg=ivy.fg, dim=ivy.dim.fg,
+                   selected_bg=ivy.selected.bg, selected_fg=ivy.selected.fg,
+                   accent=ivy.accent, match=ivy.match.fg)
+
+
+def title_font(font: QFont) -> QFont:
+    """The chip font: the entry font (``font``), bold and a bit smaller.
+
+    Fonts are stylesheet strings in the config, so the widgets take the
+    entry font from their stylesheet and everything derives from it.
+    """
+    title = QFont(font)
+    title.setBold(True)
+    if title.pointSizeF() > 0:
+        title.setPointSizeF(title.pointSizeF() * 0.8)
+    elif title.pixelSize() > 0:
+        title.setPixelSize(int(title.pixelSize() * 0.8))
+    return title
+
+
+def chip_height(font: QFont) -> int:
+    return QFontMetrics(title_font(font)).height() + 4
+
+
+def card_rect(outer: QRect, font: QFont) -> QRect:
+    """The card inside an area: padded, with room for the title chip."""
+    return outer.adjusted(PAD, PAD + chip_height(font) // 2, -PAD, -PAD)
+
+
+def content_rect(outer: QRect, font: QFont) -> QRect:
+    """Where a card's content goes, below its title chip."""
+    card = card_rect(outer, font)
+    return card.adjusted(INNER, chip_height(font) // 2 + INNER // 2,
+                         -INNER, -INNER)
+
+
+def paint_panel(painter: QPainter, rect: QRect, colors: Colors) -> None:
+    """The panel behind the cards, with a hairline on top."""
+    painter.fillRect(rect, colors.bg)
+    painter.fillRect(QRect(rect.left(), rect.top(), rect.width(), 1),
+                     colors.border)
+
+
+def paint_card(painter: QPainter, outer: QRect, font: QFont,
+               colors: Colors, title: str, right: str = '') -> None:
+    """A rounded card with a title chip in its top border.
+
+    ``right`` goes into a quieter outlined chip at the right end of the
+    border, telescope's match counter.
+    """
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    card = QRectF(card_rect(outer, font)).adjusted(0.5, 0.5, -0.5, -0.5)
+    painter.setPen(QPen(colors.border, 1))
+    painter.setBrush(colors.card)
+    painter.drawRoundedRect(card, RADIUS, RADIUS)
+
+    chip_font = title_font(font)
+    metrics = QFontMetrics(chip_font)
+    height = chip_height(font)
+    top = int(card.top()) - height // 2
+    painter.setFont(chip_font)
+    if title:
+        width = metrics.horizontalAdvance(title) + 2 * INNER + 4
+        chip = QRectF(card.left() + RADIUS + 4, top, width, height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(colors.title_bg)
+        painter.drawRoundedRect(chip, height / 2, height / 2)
+        painter.setPen(colors.title_fg)
+        painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, title)
+    if right:
+        width = metrics.horizontalAdvance(right) + 2 * INNER
+        box = QRectF(card.right() - RADIUS - 4 - width, top + 0.5, width,
+                     height - 1)
+        painter.setPen(QPen(colors.border, 1))
+        painter.setBrush(colors.card)
+        painter.drawRoundedRect(box, height / 2, height / 2)
+        painter.setPen(colors.dim)
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, right)
+    painter.restore()
+
+
+def paint_shadow(painter: QPainter, rect: QRectF, radius: float) -> None:
+    """A soft drop shadow: a few translucent rounded rects, growing."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    for i in range(6, 0, -1):
+        painter.setBrush(QColor(0, 0, 0, 14))
+        painter.drawRoundedRect(rect.adjusted(-i, -i + 3, i, i + 3),
+                                radius + i, radius + i)
+    painter.restore()
+
+
+class TabPreview(QWidget):
+
+    """The preview card on the right of the tab completion."""
 
     STYLESHEET = """
         TabPreview {
-            background-color: {{ conf.colors.completion.even.bg }};
-            border-left: 1px solid
-                {{ conf.colors.completion.category.border.top }};
-        }
-
-        QLabel#title {
-            font: {{ conf.fonts.completion.category }};
-            color: {{ qcolor_to_qsscolor(conf.colors.completion.category.fg) }};
-            background-color: {{ conf.colors.completion.category.bg }};
-            padding: 2px 6px;
-        }
-
-        QLabel#url, QLabel#image {
             font: {{ conf.fonts.completion.entry }};
-            color: {{ qcolor_to_qsscolor(conf.colors.completion.match.fg) }};
-            padding: 1px 6px;
         }
     """
 
@@ -86,28 +202,12 @@ class TabPreview(QFrame):
         super().__init__(parent)
         self._tab: weakref.ReferenceType[QWidget] | None = None
         self._pixmap: QPixmap | None = None
-        self._texts = ('', '')
-
-        self._title = QLabel(self)
-        self._title.setObjectName('title')
-        self._url = QLabel(self)
-        self._url.setObjectName('url')
-        self._image = QLabel(self)
-        self._image.setObjectName('image')
-        self._image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._image.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                  QSizePolicy.Policy.Ignored)
-        for label in [self._title, self._url]:
-            label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                QSizePolicy.Policy.Fixed)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(1, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._title)
-        layout.addWidget(self._url)
-        layout.addWidget(self._image, 1)
-
+        self._scaled: QPixmap | None = None
+        self._scaled_for = QSize()
+        self._title = ''
+        self._url = ''
+        self._icon = None
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         stylesheet.set_register(self)
         self.hide()
 
@@ -119,50 +219,122 @@ class TabPreview(QFrame):
 
     def set_tab(self, tab: QWidget | None) -> None:
         """Show the given tab (a browsertab.AbstractTab), or nothing."""
+        self._scaled = None
         if tab is None:
             self._tab = None
             self._pixmap = None
-            self._texts = ('', '')
-            self._title.clear()
-            self._url.clear()
-            self._image.clear()
-            return
-
-        self._tab = weakref.ref(tab)
-        url = tab.url().toDisplayString()  # type: ignore[attr-defined]
-        self._texts = (tab.title() or url, url)  # type: ignore[attr-defined]
-        self._pixmap = snapshot(tab)
-        self._render()
+            self._title = self._url = ''
+            self._icon = None
+        else:
+            self._tab = weakref.ref(tab)
+            self._url = tab.url().toDisplayString()  # type: ignore[attr-defined]
+            self._title = tab.title() or self._url  # type: ignore[attr-defined]
+            self._icon = tab.icon()  # type: ignore[attr-defined]
+            self._pixmap = snapshot(tab)
+        self.update()
 
     def clear(self) -> None:
         self.set_tab(None)
 
-    @staticmethod
-    def _elide(label: QLabel, text: str) -> str:
-        width = max(label.width() - 12, 0)
-        return label.fontMetrics().elidedText(
-            text, Qt.TextElideMode.ElideRight, width)
-
-    def _render(self) -> None:
-        """Fit the texts and the picture to the current size."""
-        title, url = self._texts
-        self._title.setText(self._elide(self._title, title))
-        self._url.setText(self._elide(self._url, url))
-        if self._pixmap is None:
-            self._image.setText("No preview yet")
-            return
-        size = self._image.size()
-        if size.width() <= 0 or size.height() <= 0:
-            return
-        pixmap = self._pixmap
-        if (pixmap.width() > size.width() or
-                pixmap.height() > size.height()):
-            pixmap = pixmap.scaled(size, Qt.AspectRatioMode.KeepAspectRatio,
-                                   Qt.TransformationMode.SmoothTransformation)
-        self._image.setPixmap(pixmap)
+    def _scaled_to(self, size: QSize) -> QPixmap | None:
+        """The picture fitted to ``size``, cached until the size changes."""
+        if self._pixmap is None or size.width() <= 0 or size.height() <= 0:
+            return None
+        if self._scaled is None or self._scaled_for != size:
+            self._scaled_for = size
+            self._scaled = self._pixmap
+            if (self._pixmap.width() > size.width() or
+                    self._pixmap.height() > size.height()):
+                self._scaled = self._pixmap.scaled(
+                    size, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
+        return self._scaled
 
     def resizeEvent(self, e):
-        """Rescale the picture and re-elide the text to the new size."""
         super().resizeEvent(e)
-        if self.current_tab() is not None:
-            self._render()
+        self._scaled = None
+
+    def paintEvent(self, e):
+        """Paint the card: favicon and title, URL, then the page."""
+        colors = Colors.from_config()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        outer = self.rect().adjusted(-PAD // 2, 0, 0, 0)
+        paint_panel(painter, self.rect(), colors)
+        font = self.font()
+        heading = QFont(font)
+        heading.setBold(True)
+        paint_card(painter, outer, font, colors, 'Preview')
+        if self._tab is None:
+            return
+
+        content = content_rect(outer, font)
+        title_metrics = QFontMetrics(heading)
+        entry_metrics = QFontMetrics(font)
+        line = title_metrics.height()
+
+        x = content.left()
+        if self._icon is not None and not self._icon.isNull():
+            self._icon.paint(painter, QRect(x, content.top(), line, line))
+            x += line + INNER
+        painter.setFont(heading)
+        painter.setPen(colors.fg)
+        painter.drawText(
+            QRect(x, content.top(), content.right() - x, line),
+            Qt.AlignmentFlag.AlignVCenter,
+            title_metrics.elidedText(self._title, Qt.TextElideMode.ElideRight,
+                                     content.right() - x))
+        top = content.top() + line + 2
+        painter.setFont(font)
+        painter.setPen(colors.dim)
+        painter.drawText(
+            QRect(content.left(), top, content.width(),
+                  entry_metrics.height()),
+            Qt.AlignmentFlag.AlignVCenter,
+            entry_metrics.elidedText(self._url, Qt.TextElideMode.ElideMiddle,
+                                     content.width()))
+        top += entry_metrics.height() + INNER
+
+        area = QRect(content.left(), top, content.width(),
+                     content.bottom() - top)
+        # Leave room for the shadow.
+        pixmap = self._scaled_to(area.size() - QSize(12, 12))
+        if pixmap is None:
+            self._paint_placeholder(painter, area, colors)
+            return
+
+        target = QRectF(
+            area.left() + (area.width() - pixmap.width()) / 2,
+            area.top() + 2, pixmap.width(), pixmap.height())
+        radius = 6
+        paint_shadow(painter, target, radius)
+        clip = QPainterPath()
+        clip.addRoundedRect(target, radius, radius)
+        painter.save()
+        painter.setClipPath(clip)
+        painter.drawPixmap(target.topLeft(), pixmap)
+        painter.restore()
+        painter.setPen(QPen(colors.border, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(target.adjusted(0.5, 0.5, -0.5, -0.5),
+                                radius, radius)
+
+    def _paint_placeholder(self, painter: QPainter, area: QRect,
+                           colors: Colors) -> None:
+        """A tab that was never on screen: a big faded favicon and a note."""
+        size = min(64, area.height() // 3)
+        center = area.center()
+        if self._icon is not None and not self._icon.isNull() and size > 0:
+            painter.save()
+            painter.setOpacity(0.35)
+            self._icon.paint(painter, QRect(center - QPoint(size // 2, size),
+                                            QSize(size, size)))
+            painter.restore()
+        painter.setFont(self.font())
+        painter.setPen(colors.dim)
+        painter.drawText(
+            QRect(area.left(), center.y() + INNER, area.width(),
+                  QFontMetrics(self.font()).height() * 2),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            "Not rendered yet\nfocus it once to capture a preview")

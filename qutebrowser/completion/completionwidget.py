@@ -10,8 +10,11 @@ subclasses to provide completions.
 
 from typing import TYPE_CHECKING
 
-from qutebrowser.qt.widgets import QTreeView, QSizePolicy, QStyleFactory, QWidget
-from qutebrowser.qt.core import pyqtSlot, pyqtSignal, Qt, QItemSelectionModel, QSize
+from qutebrowser.qt.widgets import (QTreeView, QSizePolicy, QStyleFactory, QWidget,
+                                    QStyle, QStyleOptionViewItem)
+from qutebrowser.qt.core import (pyqtSlot, pyqtSignal, Qt, QItemSelectionModel,
+                                 QSize, QRect, QRectF, QPoint)
+from qutebrowser.qt.gui import QFontMetrics, QPainter
 
 from qutebrowser.config import config, stylesheet
 from qutebrowser.completion import completiondelegate, tabpreview
@@ -93,6 +96,24 @@ class CompletionView(QTreeView):
             border: none;
             background: none;
         }
+
+        /* The ivy tab picker paints its own rows (drawRow), so the item
+           rules above must not paint over them. */
+        QTreeView[ivy="true"] {
+            background-color:
+                {{ qcolor_to_qsscolor(conf.colors.completion.ivy.card.bg) }};
+            /* else the favicon gutter gets the style's highlight */
+            show-decoration-selected: 0;
+        }
+
+        QTreeView[ivy="true"]::item,
+        QTreeView[ivy="true"]::item:selected,
+        QTreeView[ivy="true"]::item:selected:hover,
+        QTreeView[ivy="true"]::item:disabled,
+        QTreeView[ivy="true"]::branch {
+            background: transparent;
+            border: 0px;
+        }
     """
 
     update_geometry = pyqtSignal()
@@ -108,6 +129,7 @@ class CompletionView(QTreeView):
         self._cmd = cmd
         self._active = False
         self._previewing = False
+        self._backdrop = _Backdrop(self)
         self._preview = tabpreview.TabPreview(self)
 
         config.instance.changed.connect(self._on_config_changed)
@@ -161,33 +183,169 @@ class CompletionView(QTreeView):
         if option in ['completion.height', 'completion.shrink']:
             self.update_geometry.emit()
 
-    # ---- ivy-style tab preview -----------------------------------------
+    # ---- ivy-style tab picker ------------------------------------------
 
     #: Share of the completion width the preview pane takes.
     PREVIEW_PERC = 45
+    #: Logical columns of a tab model, shown title first in the picker.
+    _URL_COLUMN, _TITLE_COLUMN = 1, 2
+
+    @property
+    def ivy(self) -> bool:
+        """Whether the view is the ivy tab picker (list plus preview)."""
+        return self._previewing
 
     def _set_previewing(self, on: bool) -> None:
-        """Split the completion into list and preview pane, or undo it."""
+        """Switch between the plain completion and the ivy tab picker."""
         self._previewing = on
         # Telescope's ivy has no scrollbar, and ours would sit under the pane.
         self.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff if on
             else Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setAlternatingRowColors(not on)
+        # The indentation is the favicon gutter, painted by drawBranches.
+        self.setRootIsDecorated(not on)
+        self.setIndentation(self._gutter() if on else 0)
+        self.setProperty('ivy', on)
+        style = self.style()
+        assert style is not None
+        style.unpolish(self)
+        style.polish(self)
+        self._order_columns()
         self._place_preview()
         if not on:
             self._preview.clear()
 
+    def _gutter(self) -> int:
+        return QFontMetrics(self.font()).height() + 12
+
+    def _order_columns(self) -> None:
+        """Show the title before the URL in the picker, as stored otherwise."""
+        header = self.header()
+        assert header is not None
+        if header.count() <= self._TITLE_COLUMN:
+            return
+        want = self._URL_COLUMN if self._previewing else self._TITLE_COLUMN
+        current = header.visualIndex(self._TITLE_COLUMN)
+        if current != want:
+            header.moveSection(current, want)
+
+    def _list_outer(self) -> QRect:
+        """The area of the result card, left of the preview pane."""
+        width = self.width() * self.PREVIEW_PERC // 100
+        return QRect(0, 0, self.width() - width, self.height())
+
     def _place_preview(self) -> None:
         if not self._previewing:
             self.setViewportMargins(0, 0, 0, 0)
+            self._backdrop.hide()
             self._preview.hide()
             return
-        width = self.width() * self.PREVIEW_PERC // 100
-        self.setViewportMargins(0, 0, width, 0)
-        self._preview.setGeometry(self.width() - width, 0,
-                                  width, self.height())
+        outer = self._list_outer()
+        content = tabpreview.content_rect(outer, self.font())
+        self.setViewportMargins(content.left(), content.top(),
+                                self.width() - content.right() - 1,
+                                self.height() - content.bottom() - 1)
+        self._backdrop.setGeometry(self.rect())
+        self._backdrop.show()
+        self._backdrop.lower()
+        self._preview.setGeometry(outer.right() + 1, 0,
+                                  self.width() - outer.width(), self.height())
         self._preview.show()
         self._preview.raise_()
+
+    def paint_backdrop(self, painter: QPainter) -> None:
+        """Paint the panel and the result card behind the list."""
+        colors = tabpreview.Colors.from_config()
+        tabpreview.paint_panel(painter, self.rect(), colors)
+        model = self.model()
+        count = ''
+        if isinstance(model, completionmodel.CompletionModel):
+            count = f'{model.count()} / {self._total_tabs()}'
+        tabpreview.paint_card(painter, self._list_outer(), self.font(),
+                              colors, 'Tabs', count)
+
+    @staticmethod
+    def _total_tabs() -> int:
+        total = 0
+        for win_id in objreg.window_registry:
+            try:
+                tabbed_browser = objreg.get('tabbed-browser', scope='window',
+                                            window=win_id)
+            except (KeyError, objreg.RegistryUnavailableError):
+                continue
+            total += tabbed_browser.widget.count()
+        return total
+
+    def drawRow(self, painter, option, index):
+        """In the picker, paint rows as pills and window headers as rules."""
+        if not self._previewing:
+            super().drawRow(painter, option, index)
+            return
+        colors = tabpreview.Colors.from_config()
+        rect = QRectF(option.rect)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not index.parent().isValid():
+            self._draw_window_header(painter, rect, index, colors)
+            painter.restore()
+            return
+        if self.row_selected(index):
+            pill = rect.adjusted(2, 2, -2, -2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colors.selected_bg)
+            painter.drawRoundedRect(pill, 7, 7)
+            bar = QRectF(pill.left() + 4, pill.top() + 6, 3,
+                         max(pill.height() - 12, 2))
+            painter.setBrush(colors.accent)
+            painter.drawRoundedRect(bar, 1.5, 1.5)
+        painter.restore()
+        # Qt would fill the style's highlight over the pill; the delegate
+        # asks row_selected() instead.
+        option = QStyleOptionViewItem(option)
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().drawRow(painter, option, index)
+
+    def row_selected(self, index) -> bool:
+        selmodel = self.selectionModel()
+        return (selmodel is not None and
+                selmodel.isRowSelected(index.row(), index.parent()))
+
+    def _draw_window_header(self, painter, rect, index, colors) -> None:
+        """A dim WINDOW n label with a hairline after it."""
+        name = str(self._model().data(index))
+        label = f'window {name}' if name.isdigit() else name
+        label = f'{label} · {self._model().rowCount(index)}'.upper()
+        font = tabpreview.title_font(self.font())
+        metrics = QFontMetrics(font)
+        painter.setFont(font)
+        painter.setPen(colors.dim)
+        text_rect = rect.adjusted(8, 0, 0, 0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, label)
+        left = text_rect.left() + metrics.horizontalAdvance(label) + 10
+        if left < rect.right() - 8:
+            painter.fillRect(QRectF(left, rect.center().y(),
+                                    rect.right() - 8 - left, 1),
+                             colors.border)
+
+    def drawBranches(self, painter, rect, index):
+        """In the picker, the indentation holds the tab's favicon."""
+        if not self._previewing:
+            super().drawBranches(painter, rect, index)
+            return
+        if not index.parent().isValid():
+            return
+        tab = self._tab_for(str(self._model().data(index.sibling(
+            index.row(), 0))))
+        if tab is None:
+            return
+        icon = tab.icon()
+        if icon.isNull():
+            return
+        size = min(rect.height() - 8, QFontMetrics(self.font()).height())
+        target = QRect(0, 0, size, size)
+        target.moveCenter(rect.center() + QPoint(4, 0))
+        icon.paint(painter, target)
 
     def _tab_for(self, data: str):
         """The tab behind a tab completion's [win_id/]index, or None."""
@@ -207,6 +365,7 @@ class CompletionView(QTreeView):
         """Preview the selected item, or the first one like telescope."""
         if not self._previewing or not self.isVisible():
             return
+        self._backdrop.update()  # the match counter
         model = self._model()
         idx = self._selection_model().currentIndex()
         if not idx.isValid() or not idx.parent().isValid():
@@ -229,6 +388,13 @@ class CompletionView(QTreeView):
 
         bar = self.verticalScrollBar()
         assert bar is not None
+        if self._previewing and len(pixel_widths) > self._TITLE_COLUMN:
+            # The first column also holds the favicon gutter; the title
+            # gives up the room.
+            gutter = self.indentation()
+            pixel_widths[0] += gutter
+            pixel_widths[self._TITLE_COLUMN] = max(
+                pixel_widths[self._TITLE_COLUMN] - gutter, 0)
         delta = 0 if self._previewing else bar.sizeHint().width()
         for i, width in reversed(list(enumerate(pixel_widths))):
             if width > delta:
@@ -566,3 +732,19 @@ class CompletionView(QTreeView):
             sel = False
 
         utils.set_clipboard(text, selection=sel)
+
+
+class _Backdrop(QWidget):
+
+    """Paints the ivy panel and result card under the list's viewport."""
+
+    def __init__(self, view: CompletionView) -> None:
+        super().__init__(view)
+        self._view = view
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.hide()
+
+    def paintEvent(self, e):
+        painter = QPainter(self)
+        self._view.paint_backdrop(painter)

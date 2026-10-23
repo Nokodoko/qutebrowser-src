@@ -96,7 +96,12 @@ def test_preview_follows_first_item_and_selection(completionview, tabs):
     completionview.show()
     preview = completionview._preview
     assert preview.isVisible()
-    assert completionview.viewportMargins().right() == 450
+    assert completionview.ivy
+    # The list sits inside the result card, left of the 45% preview pane.
+    viewport = completionview.viewport().geometry()
+    assert preview.geometry().left() == 1000 - 450
+    assert 0 < viewport.left() and viewport.right() < 1000 - 450
+    assert 0 < viewport.top() and viewport.bottom() < 300
     assert preview.current_tab() is tabs[0]
 
     completionview.completion_item_focus('next')
@@ -113,7 +118,19 @@ def test_no_preview_for_other_models(completionview, tabs):
     completionview.set_model(model)
     completionview.show()
     assert not completionview._preview.isVisible()
+    assert not completionview.ivy
     assert completionview.viewportMargins().right() == 0
+
+
+def test_title_column_moves_back(completionview, tabs):
+    """The picker shows the title first; other completions keep the order."""
+    header = completionview.header()
+    completionview.set_model(_tab_model([('0/1', 'https://a.example/',
+                                          'a', '')]))
+    assert header.visualIndex(2) == 1
+    completionview.set_model(_tab_model([('0/1', 'https://a.example/',
+                                          'a', '')], tab_preview=False))
+    assert header.visualIndex(2) == 2
 
 
 def test_no_preview_when_disabled(completionview, tabs, config_stub):
