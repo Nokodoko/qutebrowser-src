@@ -40,6 +40,8 @@ first open, introduces the page (icarus.greet). Keys:
     <Ctrl+d>/<Ctrl+u>  scroll the transcript
     <Ctrl+c>        stop a running turn and its queue, else close
     <Ctrl+o>        the models card
+    <Ctrl+p>        the session list: pick a bar session to carry on in
+                    this tab (or start a new one)
     <Ctrl+t>/<Ctrl+j>  the tools pane (<Ctrl+j> as in the web UI's tool pane)
     <Alt+t>         unfold (or fold) the thinking
     <Ctrl+n>        new session for this tab
@@ -48,6 +50,7 @@ first open, introduces the page (icarus.greet). Keys:
 
 import html
 import json
+import time
 from urllib.parse import urlencode
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
@@ -88,6 +91,7 @@ BAR_COMMANDS = [
     ('/new', 'start a new conversation for this tab'),
     ('/model', '<provider/model> switch this tab\'s model'),
     ('/tools', 'show or hide the tools pane'),
+    ('/sessions', 'pick a bar session to carry on in this tab'),
     ('/editor', 'edit the input in nvim, split on the right'),
     ('/steer', 'a submit while a turn runs steers it'),
     ('/queue', 'a submit while a turn runs waits behind it'),
@@ -159,6 +163,31 @@ def popup_items(text: str, skills: list[tuple[str, str]]) -> list[tuple[str, str
     needle = text.lower()
     return [(name, desc) for name, desc in BAR_COMMANDS + skills
             if name.lower().startswith(needle)]
+
+
+def ago(updated_ms: int, now: float | None = None) -> str:
+    """A unix-millisecond time as a short age (5m, 3h, 2d)."""
+    if not updated_ms:
+        return ''
+    seconds = max(0, int((now if now is not None else time.time()) - updated_ms / 1000))
+    for unit, size in (('d', 86400), ('h', 3600), ('m', 60)):
+        if seconds >= size:
+            return f'{seconds // size}{unit}'
+    return 'now'
+
+
+def session_row_text(row: dict, current: str = '', now: float | None = None) -> str:
+    """One GET /bar/sessions row in the session list."""
+    sid = str(row.get('id') or '')
+    title = row.get('title') or sid[:8]
+    parts = [str(title)]
+    if row.get('site'):
+        parts.append(str(row['site']))
+    age = ago(int(row.get('updated_at') or 0), now)
+    if age:
+        parts.append(age)
+    mark = '● ' if sid and sid == current else '  '
+    return mark + ' · '.join(parts)
 
 
 #: Keys NORMAL leaves to the editor (they only move the cursor).
@@ -284,15 +313,23 @@ class IcarusBar(QWidget):
         self._popup.itemActivated.connect(lambda _item: self._accept_popup())
         self._popup.hide()
 
+        # One filter line serves the models card and the session list.
         self._filter = QLineEdit(self)
         self._filter.setPlaceholderText('filter models')
-        self._filter.textChanged.connect(self._fill_models)
+        self._filter.textChanged.connect(self._fill_list)
         self._filter.installEventFilter(self)
         self._models = QListWidget(self)
         self._models.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._models.itemActivated.connect(self._pick_model)
         self._filter.hide()
         self._models.hide()
+
+        self._sessions = QListWidget(self)
+        self._sessions.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._sessions.itemActivated.connect(self._pick_session)
+        self._sessions.hide()
+        #: GET /bar/sessions, as last fetched.
+        self._session_rows: list[dict] = []
 
         self._tools = QTextBrowser(self)
         self._tools.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -407,6 +444,77 @@ class IcarusBar(QWidget):
             self._models.setCurrentRow(0)
         self.update()
 
+    def _fill_list(self) -> None:
+        """Refill whichever list the filter line serves."""
+        if self._side == 'sessions':
+            self._fill_sessions()
+        else:
+            self._fill_models()
+
+    # ---- the session list (<Ctrl+p>) ------------------------------------
+
+    def _on_sessions(self, rows: list[dict]) -> None:
+        self._session_rows = rows
+        if self._side == 'sessions':
+            self._fill_sessions()
+
+    def _fill_sessions(self) -> None:
+        self._sessions.clear()
+        new = QListWidgetItem('＋ new conversation in this tab')
+        new.setData(Qt.ItemDataRole.UserRole, '')
+        self._sessions.addItem(new)
+        needle = self._filter.text().strip().lower()
+        current = self._conv.session if self._conv else ''
+        for row in self._session_rows:
+            text = session_row_text(row, current)
+            if needle and needle not in text.lower():
+                continue
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, row['id'])
+            self._sessions.addItem(item)
+        self._sessions.setCurrentRow(1 if self._sessions.count() > 1 else 0)
+        self.update()
+
+    def _pick_session(self, item: QListWidgetItem | None = None) -> None:
+        item = item or self._sessions.currentItem()
+        conv = self._conv
+        if item is None or conv is None:
+            return
+        sid = item.data(Qt.ItemDataRole.UserRole)
+        self._toggle_side('sessions', False)
+        if not sid:
+            self.new_session()
+            return
+        if sid == conv.session:
+            return
+
+        def on_turns(turns, conv=conv, sid=sid):
+            if turns is None:
+                message.error("icarus: could not load that session's history")
+                return
+            conv.attach(sid, turns)
+            message.info(f"icarus: this tab now carries on session {sid[:8]}")
+
+        client().fetch_transcript(sid, on_turns)
+
+    def _sessions_key(self, event: QKeyEvent) -> bool:
+        key = event.key()
+        ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        row, count = self._sessions.currentRow(), self._sessions.count()
+        # The list's own keys come before the common ones (<Ctrl+j> is the
+        # tools pane there, <Ctrl+p> this list).
+        if key == Qt.Key.Key_Down or (ctrl and key in (Qt.Key.Key_J, Qt.Key.Key_N)):
+            self._sessions.setCurrentRow(min(row + 1, count - 1))
+        elif key == Qt.Key.Key_Up or (ctrl and key in (Qt.Key.Key_K, Qt.Key.Key_P)):
+            self._sessions.setCurrentRow(max(row - 1, 0))
+        elif key == Qt.Key.Key_Escape:
+            self._toggle_side('sessions', False)
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._pick_session()
+        else:
+            return self._common_key(event)
+        return True
+
     def _pick_model(self, item: QListWidgetItem | None = None) -> None:
         item = item or self._models.currentItem()
         if item is None or self._conv is None:
@@ -423,9 +531,10 @@ class IcarusBar(QWidget):
         was = self._side
         self._side = side if show else (None if self._side == side else self._side)
         models, tools = self._side == 'models', self._side == 'tools'
-        editor = self._side == 'editor'
-        self._filter.setVisible(models)
+        editor, sessions = self._side == 'editor', self._side == 'sessions'
+        self._filter.setVisible(models or sessions)
         self._models.setVisible(models)
+        self._sessions.setVisible(sessions)
         self._tools.setVisible(tools)
         if self._editor_view is not None:
             self._editor_view.setVisible(editor)
@@ -433,10 +542,13 @@ class IcarusBar(QWidget):
                 # Leaving the split ends its nvim: the page goes, so the WS
                 # /pty session closes and serve reaps the editor.
                 self._editor_view.setUrl(QUrl('about:blank'))
-        if models:
+        if models or sessions:
+            self._filter.setPlaceholderText('filter models' if models else 'filter sessions')
             self._filter.clear()
-            self._fill_models()
+            self._fill_list()
             self._filter.setFocus()
+            if sessions:
+                client().fetch_sessions(self._on_sessions)
         elif editor:
             assert self._editor_view is not None
             self._editor_view.setFocus()
@@ -550,6 +662,8 @@ class IcarusBar(QWidget):
                 self._toggle_side('models', True)
         elif name == '/tools':
             self._toggle_side('tools')
+        elif name == '/sessions':
+            self._toggle_side('sessions', True)
         elif name == '/editor':
             self.open_editor()
         elif name in ('/steer', '/queue'):
@@ -813,6 +927,8 @@ class IcarusBar(QWidget):
             return False
         assert isinstance(event, QKeyEvent)
         if obj is self._filter:
+            if self._side == 'sessions':
+                return self._sessions_key(event)
             return self._models_key(event)
         if obj is self._input:
             return self._input_key(event)
@@ -827,6 +943,8 @@ class IcarusBar(QWidget):
             self.stop()
         elif ctrl and key == Qt.Key.Key_O:
             self._toggle_side('models')
+        elif ctrl and key == Qt.Key.Key_P:
+            self._toggle_side('sessions')
         elif ctrl and key in (Qt.Key.Key_T, Qt.Key.Key_J):
             self._toggle_side('tools')
         elif ctrl and key == Qt.Key.Key_N:
@@ -989,10 +1107,11 @@ class IcarusBar(QWidget):
             self._popup.raise_()
         if side is not None:
             inner = glass.content_rect(side, font)
-            if self._side == 'models':
+            if self._side in ('models', 'sessions'):
                 row = line + 8
                 self._filter.setGeometry(inner.left(), inner.top(), inner.width(), row)
-                self._models.setGeometry(inner.adjusted(0, row + 6, 0, 0))
+                listing = self._models if self._side == 'models' else self._sessions
+                listing.setGeometry(inner.adjusted(0, row + 6, 0, 0))
             elif self._side == 'editor':
                 if self._editor_view is not None:
                     self._editor_view.setGeometry(inner)
@@ -1036,6 +1155,9 @@ class IcarusBar(QWidget):
         if side is not None and self._side == 'models':
             count = f'{self._models.count()} / {len(client().models)}'
             glass.paint_card(painter, side, font, colors, 'Models', right=count)
+        elif side is not None and self._side == 'sessions':
+            count = f'{max(self._sessions.count() - 1, 0)} / {len(self._session_rows)}'
+            glass.paint_card(painter, side, font, colors, 'Sessions', right=count)
         elif side is not None and self._side == 'editor':
             glass.paint_card(painter, side, font, colors, 'nvim',
                              right='prompt.md · :wq return · :q discard · <Ctrl+g> close')
@@ -1085,6 +1207,19 @@ def icarus_close(win_id: int) -> None:
 def icarus_new(win_id: int) -> None:
     """Start a new icarus conversation for the current tab."""
     _bar(win_id).new_session()
+
+
+@cmdutils.register()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def icarus_sessions(win_id: int) -> None:
+    """Open the icarus bar's session list (<Ctrl+p> in the bar).
+
+    Picking a session carries it on in the current tab.
+    """
+    bar = _bar(win_id)
+    if not bar.isVisible():
+        bar.open()
+    bar._toggle_side('sessions', True)  # noqa: SLF001
 
 
 @cmdutils.register()

@@ -233,6 +233,27 @@ class Conversation(QObject):
         self._client.forget(self.target)
         self.changed.emit()
 
+    def attach(self, session: str, turns: list[dict[str, Any]]) -> None:
+        """Carry on with another serve session (the bar's session list).
+
+        turns is its GET /bar/history: [{role, text}], oldest first. The next
+        submit sends this session, and serve re-binds the tab to it.
+        """
+        self._steer = None
+        self.queue.clear()
+        self.stop()
+        self.session = session
+        self.entries = [
+            Entry('you' if t.get('role') == 'user' else 'icarus', t.get('text') or '')
+            for t in turns if isinstance(t, dict) and (t.get('text') or '').strip()
+        ]
+        self.tools.clear()
+        self.greeted = True
+        last = self.entries[-1] if self.entries else None
+        self.suggestions = (split_suggestions(last.text)[1]
+                            if last is not None and last.kind == 'icarus' else [])
+        self.changed.emit()
+
     def state(self) -> dict[str, Any] | None:
         """What a qutebrowser session saves of this chat; None when empty.
 

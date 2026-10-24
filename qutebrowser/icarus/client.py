@@ -225,6 +225,20 @@ class Client(QObject):
         self.get_json(f'/api/prompt-history?limit={1000}',
                       lambda data: callback(data if isinstance(data, list) else []))
 
+    def fetch_sessions(self, callback: Callable[[list[dict[str, Any]]], None]) -> None:
+        """The bar's sessions, newest first (GET /bar/sessions)."""
+        self.get_json('/bar/sessions', lambda data: callback(
+            [s for s in data if isinstance(s, dict) and s.get('id')]
+            if isinstance(data, list) else []))
+
+    def fetch_transcript(self, session: str,
+                         callback: Callable[[list[dict[str, Any]] | None], None]) -> None:
+        """One session's conversation, oldest first (GET /bar/history);
+        None when serve could not give it."""
+        sid = bytes(QUrl.toPercentEncoding(session)).decode('ascii')
+        self.get_json(f'/bar/history?session={sid}', lambda data: callback(
+            data if isinstance(data, list) else None))
+
     def fetch_skills(self, callback: Callable[[list[tuple[str, str]]], None]) -> None:
         """The /name commands a bar submit can expand: serve's skills
         (GET /command, minus the REPL built-ins, which only the REPL runs)."""

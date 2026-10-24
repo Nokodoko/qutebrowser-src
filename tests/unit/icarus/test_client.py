@@ -379,6 +379,36 @@ def test_popup_items(text, names):
         assert got == names
 
 
+def test_session_rows():
+    now = 1_000_000.0
+    row = {'id': 'abcdef1234', 'title': 'Pricing', 'site': 'example.com',
+           'updated_at': int((now - 7200) * 1000)}
+    assert icarusbar.session_row_text(row, now=now) == '  Pricing · example.com · 2h'
+    assert icarusbar.session_row_text(row, current='abcdef1234', now=now).startswith('● ')
+    assert icarusbar.session_row_text({'id': 'abcdef1234'}, now=now) == '  abcdef12'
+    assert icarusbar.ago(int(now * 1000), now) == 'now'
+    assert icarusbar.ago(int((now - 3 * 86400) * 1000), now) == '3d'
+    assert icarusbar.ago(0, now) == ''
+
+
+def test_conversation_attach(conv):
+    c, fake = conv
+    c.submit('running')
+    c.queue = ['later']
+    c.tools.append(conversation.ToolCall('c', 'read', '{}'))
+    c.attach('S9', [{'role': 'assistant', 'text': 'Hi.\n\n→ go'},
+                    {'role': 'user', 'text': 'what?'},
+                    {'role': 'assistant', 'text': 'That.\n\n→ next'},
+                    {'role': 'assistant', 'text': '  '}, 'junk'])
+    assert fake.turns[0].aborted and c.queue == [] and c.tools == []
+    assert c.session == 'S9' and c.greeted
+    assert [(e.kind, e.text) for e in c.entries] == [
+        ('icarus', 'Hi.\n\n→ go'), ('you', 'what?'), ('icarus', 'That.\n\n→ next')]
+    assert c.suggestions == ['next']
+    c.submit('more')
+    assert fake.turns[-1].body['session'] == 'S9'
+
+
 @pytest.mark.parametrize('phase, tool, expected', [
     (conversation.WORKING, '', 'working…'),
     (conversation.RESPONDING, '', 'responding…'),
