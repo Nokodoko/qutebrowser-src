@@ -109,7 +109,8 @@ class IcarusBar(QWidget):
 
     STYLESHEET = """
         QWidget {
-            font: {{ conf.fonts.prompts }};
+            /* the tab picker's font: one setting sizes both trays */
+            font: {{ conf.fonts.completion.entry }};
             color: {{ qcolor_to_qsscolor(conf.colors.glass.fg) }};
             background: transparent;
             border: none;
