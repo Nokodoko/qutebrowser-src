@@ -161,6 +161,16 @@ def init(win_id: int, parent: QObject) -> 'ModeManager':
                 parent=modeman,
                 supports_count=False),
 
+        usertypes.KeyMode.icarus:
+            modeparsers.CommandKeyParser(
+                mode=usertypes.KeyMode.icarus,
+                win_id=win_id,
+                commandrunner=commandrunner,
+                parent=modeman,
+                passthrough=True,
+                do_log=log_sensitive_keys,
+                supports_count=False),
+
         usertypes.KeyMode.set_mark:
             modeparsers.RegisterKeyParser(
                 mode=usertypes.KeyMode.set_mark,

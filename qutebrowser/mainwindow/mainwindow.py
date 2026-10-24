@@ -22,7 +22,7 @@ from qutebrowser.api import cmdutils
 from qutebrowser.config import config, configfiles, stylesheet, websettings
 from qutebrowser.utils import (message, log, usertypes, qtutils, objreg, utils,
                                jinja, debug)
-from qutebrowser.mainwindow import glass, messageview, prompt
+from qutebrowser.mainwindow import glass, icarusbar, messageview, prompt
 from qutebrowser.completion import completionwidget, completer
 from qutebrowser.keyinput import modeman
 from qutebrowser.browser import downloadview, hints, downloads
@@ -298,6 +298,8 @@ class MainWindow(QWidget):
         objreg.register('prompt-container', self._prompt_container,
                         scope='window', window=self.win_id, command_only=True)
         self._prompt_container.hide()
+
+        self._icarus_bar = icarusbar.init(self.win_id, self)
 
         self._messageview = messageview.MessageView(parent=self)
         self._add_overlay(self._messageview, self._messageview.update_geometry)

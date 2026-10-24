@@ -1712,6 +1712,42 @@ glass.blur:
     or resizes, which takes a few milliseconds. 0 shows it sharp, as clear
     glass.
 
+## icarus
+
+icarus.url:
+  default: http://127.0.0.1:7654
+  type:
+    name: String
+  desc: >-
+    The icarus serve the icarus bar (`:icarus`) talks to.
+
+    The bar sends each submit to its `/bar/turn` route together with the
+    tab it was made on; serve keeps one conversation per tab and drives the
+    tab itself when the submit asks for something to be done on the page.
+
+icarus.cdp_url:
+  default: ''
+  type:
+    name: String
+    none_ok: true
+  desc: >-
+    This browser's DevTools endpoint as icarus serve knows it
+    (`browser.cdp_url` or one of `browser.extra_cdp_urls`).
+
+    Empty derives it from `QTWEBENGINE_REMOTE_DEBUGGING`.
+
+icarus.model:
+  default: qwen3.8-flash-next
+  type:
+    name: String
+  desc: >-
+    The model a new icarus bar conversation runs on: `provider/model`, or a
+    bare model id, which takes the first provider serving it (local fleet
+    first).
+
+    `<Ctrl+o>` in the bar (or `:icarus-model`) swaps a tab's model.
+    Browser control is always laya's, whatever the model.
+
 ## hints
 
 hints.auto_follow:
@@ -3060,6 +3096,16 @@ colors.glass.selected.fg:
   type: QtColor
   desc: Text of the selected row or item in the glass menus.
 
+colors.icarus.insert.bg:
+  default: '#7AA2F7'
+  type: QtColor
+  desc: Mode chip of the icarus bar's input while typing (INSERT).
+
+colors.icarus.normal.bg:
+  default: '#95C561'
+  type: QtColor
+  desc: Mode chip of the icarus bar's input in NORMAL mode.
+
 colors.glass.accent:
   default: '#95C561'
   type: QtColor
@@ -4325,6 +4371,7 @@ bindings.default:
       T: cmd-set-text -s :tab-select
       r: cmd-set-text --space :tag-rename
       <Escape>: mode-leave
+    icarus: {}
     register:
       <Escape>: mode-leave
   type:
@@ -4332,7 +4379,7 @@ bindings.default:
     none_ok: true
     keytype: String  # section name
     fixed_keys: ['normal', 'insert', 'hint', 'passthrough', 'command',
-                 'prompt', 'yesno', 'caret', 'tile', 'register']
+                 'prompt', 'yesno', 'caret', 'tile', 'icarus', 'register']
     valtype:
       name: Dict
       none_ok: true
@@ -4356,7 +4403,7 @@ bindings.commands:
     none_ok: true
     keytype: String  # section name
     fixed_keys: ['normal', 'insert', 'hint', 'passthrough', 'command',
-                 'prompt', 'yesno', 'caret', 'tile', 'register']
+                 'prompt', 'yesno', 'caret', 'tile', 'icarus', 'register']
     valtype:
       name: Dict
       none_ok: true

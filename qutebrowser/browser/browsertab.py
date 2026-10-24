@@ -126,6 +126,9 @@ class TabData:
         session_history: The session history entries this tab was restored
                          from, saved again while the page's own history is
                          still empty (a lazy or stalled restore).
+        icarus: The tab's icarus bar conversation
+                (icarus.conversation.Conversation), created when the bar
+                first opens on it.
     """
 
     keep_icon: bool = False
@@ -145,6 +148,7 @@ class TabData:
     last_navigation: usertypes.NavigationRequest | None = None
     splitter: miscwidgets.InspectorSplitter | None = None
     session_history: list[dict[str, Any]] | None = None
+    icarus: Any = None
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or

@@ -124,6 +124,7 @@ class TestKeyConfig:
             'prompt': {},
             'caret': {},
             'tile': {},
+            'icarus': {},
             'register': {},
             'yesno': {}
         }
@@ -137,6 +138,7 @@ class TestKeyConfig:
             'prompt': {},
             'caret': {},
             'tile': {},
+            'icarus': {},
             'register': {},
             'yesno': {}
         }
