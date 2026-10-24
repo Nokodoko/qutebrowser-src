@@ -300,6 +300,7 @@ class MainWindow(QWidget):
         self._prompt_container.hide()
 
         self._icarus_bar = icarusbar.init(self.win_id, self)
+        self._add_overlay(self._icarus_bar, self._icarus_bar.update_geometry)
 
         self._messageview = messageview.MessageView(parent=self)
         self._add_overlay(self._messageview, self._messageview.update_geometry)

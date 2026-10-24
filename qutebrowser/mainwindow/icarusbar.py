@@ -4,12 +4,14 @@
 
 """The icarus bar: a chat with icarus over the current tab.
 
-Laid out like ChatGPT.nvim's chat as configured in the user's nvim (a
-centered float, 80% of the window): a transcript card titled
-``ICARUS · model``, an input card below it whose title chip is the input's
-vi mode, and with ``<Ctrl+o>`` a models card on the right to swap the chat
-model between the local fleet and cloud. Painted with the glass chrome of
-the other menus (mainwindow/glass.py).
+A tray that comes up from the bottom like the tab picker (the completion
+overlay: full width, above the statusbar, completion.height tall), so the
+page it drives stays in view above it. Inside are the cards of
+ChatGPT.nvim's chat: a transcript card titled ``ICARUS · model``, an input
+card below it whose title chip is the input's vi mode, and with
+``<Ctrl+o>`` a models card on the right to swap the chat model between the
+local fleet and cloud. Painted with the glass chrome of the other menus
+(mainwindow/glass.py).
 
 Each tab carries its own conversation (``tab.data.icarus``); icarus serve
 keeps the matching session and drives the tab itself (laya) when a submit
@@ -28,10 +30,12 @@ which passes keys through to it; its own keys follow the nvim chat:
 
 import html
 
-from qutebrowser.qt.core import QEvent, QObject, QRect, Qt, QUrl, pyqtSlot
+from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
+                                 pyqtSignal, pyqtSlot)
 from qutebrowser.qt.gui import QKeyEvent, QPainter
 from qutebrowser.qt.widgets import (QLineEdit, QListWidget, QListWidgetItem,
-                                    QPlainTextEdit, QTextBrowser, QWidget)
+                                    QPlainTextEdit, QSizePolicy, QTextBrowser,
+                                    QWidget)
 
 from qutebrowser.api import cmdutils
 from qutebrowser.config import config, stylesheet
@@ -96,7 +100,12 @@ def render(entries: list[conversation.Entry]) -> str:
 
 class IcarusBar(QWidget):
 
-    """The bar of one window, over the current tab's conversation."""
+    """The bar of one window, over the current tab's conversation.
+
+    Signals:
+        update_geometry: The main window should re-place the tray (it is
+                         one of its overlays, like the completion).
+    """
 
     STYLESHEET = """
         QWidget {
@@ -119,8 +128,10 @@ class IcarusBar(QWidget):
         QScrollBar { width: 0px; height: 0px; }
     """
 
-    #: Share of the window the float covers (popup_layout.center).
-    SIZE = 0.8
+    update_geometry = pyqtSignal()
+
+    #: Lines of text the input card shows.
+    INPUT_LINES = 3
 
     def __init__(self, win_id: int, parent: QWidget) -> None:
         super().__init__(parent)
@@ -152,7 +163,7 @@ class IcarusBar(QWidget):
         self._models.hide()
 
         stylesheet.set_register(self)
-        parent.installEventFilter(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         modeman.instance(win_id).left.connect(self._on_mode_left)
         self.hide()
 
@@ -182,8 +193,8 @@ class IcarusBar(QWidget):
                 tab.data.icarus_saved = None
         self._attach(tab, conv)
         client().fetch_models(lambda _models: self._on_models())
-        self._reposition()
         self.show()
+        self._reposition()
         self.raise_()
         self._frost.refresh()
         self._set_mode('INSERT')
@@ -356,10 +367,6 @@ class IcarusBar(QWidget):
     def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
         if event is None:
             return False
-        if obj is self.parent():
-            if event.type() == QEvent.Type.Resize and self.isVisible():
-                self._reposition()
-            return False
         if event.type() != QEvent.Type.KeyPress:
             return False
         assert isinstance(event, QKeyEvent)
@@ -444,13 +451,20 @@ class IcarusBar(QWidget):
 
     # ---- geometry and painting -------------------------------------------
 
+    def sizeHint(self) -> QSize:
+        """As tall as the tab picker: completion.height (shrink aside)."""
+        confheight = str(config.val.completion.height)
+        if confheight.endswith('%'):
+            window = self.window()
+            assert window is not None
+            height = window.height() * int(confheight.rstrip('%')) // 100
+        else:
+            height = int(confheight)
+        return QSize(-1, height)
+
     def _reposition(self) -> None:
-        parent = self.parentWidget()
-        assert parent is not None
-        width = int(parent.width() * self.SIZE)
-        height = int(parent.height() * self.SIZE)
-        self.setGeometry((parent.width() - width) // 2,
-                         (parent.height() - height) // 2, width, height)
+        """Have the main window place the tray above the statusbar."""
+        self.update_geometry.emit()
         self._layout()
         self._frost.schedule()
 
@@ -460,7 +474,8 @@ class IcarusBar(QWidget):
                                     -glass.PAD // 2)
         font = self.font()
         line = self.fontMetrics().height()
-        input_h = 4 * line + 2 * glass.INNER + glass.chip_height(font) + glass.PAD
+        input_h = (self.INPUT_LINES * line + 2 * glass.INNER +
+                   glass.chip_height(font) + glass.PAD)
         models = None
         if self._models_open:
             width = min(max(rect.width() // 3, 260), rect.width() // 2)
@@ -487,6 +502,8 @@ class IcarusBar(QWidget):
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         self._layout()
+        if self.isVisible():
+            self._frost.schedule()
 
     def _title(self) -> str:
         conv = self._conv
@@ -500,7 +517,7 @@ class IcarusBar(QWidget):
         painter = QPainter(self)
         colors = glass.Colors.from_config()
         font = self.font()
-        glass.paint_surface(painter, self.rect(), colors, self._frost)
+        glass.paint_panel(painter, self.rect(), colors, self._frost)
         transcript, inp, models = self._areas()
         session = self._conv.session[:8] if self._conv and self._conv.session else 'new'
         glass.paint_card(painter, transcript, font, colors, self._title(),
