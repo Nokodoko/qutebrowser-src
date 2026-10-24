@@ -1748,6 +1748,29 @@ icarus.model:
     `<Ctrl+o>` in the bar (or `:icarus-model`) swaps a tab's model.
     Browser control is always laya's, whatever the model.
 
+icarus.mid_turn:
+  default: steer
+  type:
+    name: String
+    valid_values:
+      - steer: A submit while a turn runs interrupts it (its partial answer
+          stays, marked steered) and runs right away.
+      - queue: A submit while a turn runs waits behind it and runs when it
+          ends, in order.
+  desc: >-
+    What a submit does while the tab's icarus turn is still running, as the
+    icarus web UI's harness modes do.
+
+    `<Ctrl+s>` in the bar switches it for the window; `<Ctrl+x>` drops the
+    newest queued prompt.
+
+icarus.greet:
+  default: true
+  type: Bool
+  desc: >-
+    Whether the icarus bar opens a tab's conversation itself: on the first
+    open it tells you what the page is and what it could do with it.
+
 ## hints
 
 hints.auto_follow:

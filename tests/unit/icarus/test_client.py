@@ -92,7 +92,12 @@ class FakeTurn:
         self.on_event = fn
 
     def abort(self):
+        # Like the real Turn: an abort ends the stream with 'stopped'.
         self.aborted = True
+        if self.on_event is not None:
+            self.on_event({'kind': 'error', 'text': 'stopped'})
+        if self.finished.fn is not None:
+            self.finished.emit()
 
 
 class _Signal:
@@ -115,6 +120,11 @@ class FakeClient:
 
     def turn(self, body):
         turn = FakeTurn(body)
+        self.turns.append(turn)
+        return turn
+
+    def greet(self, body):
+        turn = FakeTurn(dict(body, greet=True))
         self.turns.append(turn)
         return turn
 
@@ -142,7 +152,7 @@ def test_conversation_turn(conv, qtbot):
         'session': '', 'url': 'https://x.test', 'title': 'X',
         'provider': 'llamacpp-monty-qwen1', 'model': 'qwen3.8-flash-next',
     }
-    assert c.busy and not c.submit('again')
+    assert c.busy
 
     turn.on_event({'kind': 'session', 'session': 'S1', 'provider': 'p', 'model': 'm'})
     turn.on_event({'kind': 'lane', 'lane': 'browser_act'})
@@ -208,6 +218,86 @@ def test_conversation_restore_tolerates_junk(conv, data):
     c.restore(data)
     assert c.session == '' and c.model is None
     assert [(e.kind, e.text) for e in c.entries] in ([], [('you', 'ok')])
+
+
+def test_conversation_thinking_tools_and_phases(conv):
+    c, fake = conv
+    c.submit('read it')
+    turn = fake.turns[0]
+    assert c.phase == conversation.WORKING
+    turn.on_event({'kind': 'reasoning', 'text': 'let me '})
+    turn.on_event({'kind': 'reasoning', 'text': 'look'})
+    turn.on_event({'kind': 'tool', 'phase': 'call', 'call': 'c1', 'name': 'read',
+                   'text': '{"path": "a"}'})
+    assert (c.phase, c.tool) == (conversation.TOOL, 'read')
+    turn.on_event({'kind': 'tool', 'phase': 'result', 'call': 'c1', 'name': 'read',
+                   'text': 'data', 'ms': 12})
+    assert c.phase == conversation.WORKING
+    turn.on_event({'kind': 'tool', 'phase': 'error', 'call': 'c9', 'name': 'bash',
+                   'text': 'refused'})
+    turn.on_event({'kind': 'tool', 'phase': 'call', 'call': 'c2', 'name': 'grep',
+                   'text': '{}'})
+    turn.on_event({'kind': 'delta', 'text': 'Answer.\n\n→ summarise it\n→ click Sign in\n'})
+    assert c.phase == conversation.RESPONDING
+    turn.finished.emit()
+
+    assert c.phase == conversation.IDLE
+    assert [(e.kind, e.text) for e in c.entries][:2] == [
+        ('you', 'read it'), ('thinking', 'let me look')]
+    assert [(t.name, t.state, t.result, t.ms) for t in c.tools] == [
+        ('read', 'done', 'data', 12),
+        ('bash', 'error', 'refused', 0),
+        ('grep', 'error', 'no result', 0),  # never answered
+    ]
+    assert c.suggestions == ['summarise it', 'click Sign in']
+    assert c.last_reply() == 'Answer.'
+
+
+@pytest.mark.parametrize('text, body, suggestions', [
+    ('plain', 'plain', []),
+    ('a\n\n→ one\n-> two', 'a', ['one', 'two']),
+    ('→ only', '', ['only']),
+    ('a → inline\nb', 'a → inline\nb', []),
+])
+def test_split_suggestions(text, body, suggestions):
+    assert conversation.split_suggestions(text) == (body, suggestions)
+
+
+def test_conversation_greet_once(conv):
+    c, fake = conv
+    assert c.greet(url='https://x.test', title='X')
+    assert fake.turns[0].body['greet'] and fake.turns[0].body['text'] == ''
+    fake.turns[0].finished.emit()
+    assert not c.greet()
+    assert c.entries == []  # the greeting adds no 'you' entry
+
+
+def test_conversation_steer(conv):
+    c, fake = conv
+    c.submit('first')
+    fake.turns[0].on_event({'kind': 'delta', 'text': 'partial'})
+    assert c.submit('actually, second', url='https://x.test')
+    assert fake.turns[0].aborted
+    assert len(fake.turns) == 2 and fake.turns[1].body['text'] == 'actually, second'
+    assert [(e.kind, e.text) for e in c.entries] == [
+        ('you', 'first'), ('icarus', 'partial'), ('step', 'steered'),
+        ('you', 'actually, second')]
+
+
+def test_conversation_queue(conv):
+    c, fake = conv
+    c.submit('one')
+    c.submit('two', mid_turn='queue')
+    c.submit('three', mid_turn='queue')
+    c.submit('four', mid_turn='queue')
+    assert c.unqueue() == 'four'
+    assert c.queue == ['two', 'three'] and not fake.turns[0].aborted
+    fake.turns[0].finished.emit()
+    assert fake.turns[1].body['text'] == 'two' and c.queue == ['three']
+    c.cancel()
+    assert c.queue == [] and fake.turns[1].aborted
+    assert len(fake.turns) == 2  # a cancel runs nothing after it
+    assert c.unqueue() == ''
 
 
 def test_render_transcript():

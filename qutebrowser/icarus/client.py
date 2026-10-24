@@ -7,9 +7,10 @@
 POST /bar/turn runs one submit for one tab and streams the turn back as
 server-sent events, one JSON object per ``data:`` line (see
 cmd/icarus/serve_bar.go in icarus): ``session``, ``lane``, ``delta``,
-``step``, ``open``, ``error`` and ``done``. Serve keeps one conversation per
-tab, keyed by the tab's CDP endpoint and target id, and drives the tab itself
-(laya) when the submit asks for a page action. GET /provider is the model
+``reasoning``, ``tool``, ``step``, ``open``, ``error`` and ``done``.
+POST /bar/greet streams the same for the opening turn. Serve keeps one
+conversation per tab, keyed by the tab's CDP endpoint and target id, and
+drives the tab itself (laya) when the submit asks for a page action. GET /provider is the model
 catalog the picker lists. Nothing here blocks the event loop.
 """
 
@@ -180,6 +181,10 @@ class Client(QObject):
     def turn(self, body: dict[str, Any]) -> Turn:
         """Start a turn; body is serve_bar.go's barTurnRequest."""
         return Turn(self._post('/bar/turn', body), self)
+
+    def greet(self, body: dict[str, Any]) -> Turn:
+        """Start the opening turn on a tab (POST /bar/greet)."""
+        return Turn(self._post('/bar/greet', body), self)
 
     def forget(self, tab: str) -> None:
         """Drop a tab's conversation on the serve side (POST /bar/new)."""
