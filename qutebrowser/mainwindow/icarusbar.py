@@ -879,8 +879,10 @@ class IcarusBar(QWidget):
         chat, inp, side = self._areas()
         conv = self._conv
         session = conv.session[:8] if conv and conv.session else 'new'
-        glass.paint_card(painter, chat, font, colors, self._title(),
-                         right=f'session {session}')
+        right = f'session {session}'
+        if conv and conv.tools and self._side != 'tools':
+            right += f' · {len(conv.tools)} tools <Ctrl+t>'
+        glass.paint_card(painter, chat, font, colors, self._title(), right=right)
         mode = self._mode
         chip = (config.val.colors.icarus.insert.bg if mode == 'INSERT'
                 else config.val.colors.icarus.normal.bg)
