@@ -568,6 +568,11 @@ class MainWindow(QWidget):
 
         self.tabbed_browser.cur_scroll_perc_changed.connect(
             self.status.percentage.set_perc)
+        # The statusbar's glass shows the page edge: re-frost as it changes.
+        self.tabbed_browser.cur_scroll_perc_changed.connect(
+            self.status.refresh_glass)
+        self.tabbed_browser.cur_load_finished.connect(
+            self.status.refresh_glass)
         self.tabbed_browser.widget.tab_index_changed.connect(
             self.status.tabindex.on_tab_index_changed)
 

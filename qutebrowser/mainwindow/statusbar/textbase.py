@@ -8,18 +8,24 @@ from qutebrowser.qt.core import Qt, QEvent, QRect, pyqtProperty
 from qutebrowser.qt.widgets import QLabel, QSizePolicy
 from qutebrowser.qt.gui import QPainter, QColor
 
+from qutebrowser.mainwindow import glass
 from qutebrowser.utils import qtutils, utils
 
 
-def segment_padding(widget, color):
+def segment_padding(widget, color, pill=False):
     """Get the horizontal padding around a statusbar segment.
 
     This is a space in the widget's font, or 0 when color is invalid or
-    transparent, i.e. when statusbar.segments is off.
+    transparent, i.e. when statusbar.segments is off. A glass pill needs
+    at least its corner radius so the text clears the rounded ends.
     """
     if not color.isValid() or color.alpha() == 0:
         return 0
-    return widget.fontMetrics().horizontalAdvance(' ')
+    metrics = widget.fontMetrics()
+    padding = metrics.horizontalAdvance(' ')
+    if pill:
+        padding = max(padding, metrics.height() // 2)
+    return padding
 
 
 class TextBase(QLabel):
@@ -34,12 +40,14 @@ class TextBase(QLabel):
     With statusbar.segments, the statusbar stylesheet sets segmentBg to the
     mode color, and the label paints it only behind its own text (padded by a
     space on each side) instead of the statusbar painting it across the whole
-    bar. A transparent or invalid segmentBg paints nothing.
+    bar. A transparent or invalid segmentBg paints nothing. With segmentGlass
+    (glass.enabled) the segment is a rounded glass pill instead of a block.
 
     Attributes:
         _elidemode: Where to elide the text.
         _elided_text: The current elided text.
         _segment_bg: The segment background color.
+        _segment_glass: Whether the segment is painted as a glass pill.
     """
 
     def __init__(self, parent=None, elidemode=Qt.TextElideMode.ElideRight):
@@ -48,6 +56,7 @@ class TextBase(QLabel):
         self._elidemode = elidemode
         self._elided_text = ''
         self._segment_bg = QColor()
+        self._segment_glass = False
 
     @pyqtProperty(QColor)
     def segmentBg(self):  # noqa: N802
@@ -61,9 +70,21 @@ class TextBase(QLabel):
         self._update_segment_margins()
         self.update()
 
+    @pyqtProperty(bool)
+    def segmentGlass(self):  # noqa: N802
+        """Getter for segmentGlass, so the stylesheet can set it."""
+        return self._segment_glass
+
+    @segmentGlass.setter  # type: ignore[no-redef]
+    def segmentGlass(self, value):  # noqa: N802
+        """Setter for segmentGlass; re-pads the text and repaints."""
+        self._segment_glass = bool(value)
+        self._update_segment_margins()
+        self.update()
+
     def _segment_padding(self):
         """Get the horizontal segment padding, 0 when segments are off."""
-        return segment_padding(self, self._segment_bg)
+        return segment_padding(self, self._segment_bg, self._segment_glass)
 
     def _update_segment_margins(self):
         """Reserve the segment padding on both sides of the text."""
@@ -115,7 +136,12 @@ class TextBase(QLabel):
         segment = QRect(text_rect.left() - padding, 0,
                         text_rect.width() + 2 * padding, self.height())
         painter = QPainter(self)
-        painter.fillRect(segment.intersected(self.rect()), self._segment_bg)
+        if self._segment_glass:
+            glass.paint_pill(painter, segment.intersected(self.rect()),
+                             self._segment_bg)
+        else:
+            painter.fillRect(segment.intersected(self.rect()),
+                             self._segment_bg)
         painter.end()
 
     def paintEvent(self, e):

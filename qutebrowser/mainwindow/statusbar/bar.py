@@ -8,11 +8,13 @@ import enum
 import dataclasses
 
 from qutebrowser.qt.core import pyqtSignal, pyqtProperty, pyqtSlot, Qt, QSize, QTimer
+from qutebrowser.qt.gui import QPainter
 from qutebrowser.qt.widgets import QWidget, QHBoxLayout, QStackedLayout, QSizePolicy
 
 from qutebrowser.browser import browsertab
 from qutebrowser.config import config, stylesheet
 from qutebrowser.keyinput import modeman
+from qutebrowser.mainwindow import glass
 from qutebrowser.utils import usertypes, log, objreg, utils
 from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               keystring, percentage, url,
@@ -87,14 +89,16 @@ class ColorFlags:
 _SEGMENT_QSS = """
     SELECTOR QLabel {
         qproperty-segmentBg: {% if conf.statusbar.segments %}{{ conf.colors.OPTION.bg }}{% else %}transparent{% endif %};
+        qproperty-segmentGlass: {% if conf.glass.enabled %}true{% else %}false{% endif %};
     }
 
     SELECTOR QLineEdit {
         color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.fg }}{% else %}{{ conf.colors.OPTION.fg }}{% endif %};
+        qproperty-segmentGlass: {% if conf.glass.enabled %}true{% else %}false{% endif %};
     }
 
     SELECTOR {
-        background-color: {% if conf.statusbar.segments %}{{ conf.colors.statusbar.segments.bg }}{% else %}{{ conf.colors.OPTION.bg }}{% endif %};
+        background-color: {% if conf.statusbar.segments and conf.glass.enabled %}transparent{% elif conf.statusbar.segments %}{{ conf.colors.statusbar.segments.bg }}{% else %}{{ conf.colors.OPTION.bg }}{% endif %};
     }
 """
 
@@ -105,7 +109,9 @@ def _segment_qss(selector, option):
     With statusbar.segments the mode background goes to the labels (painted
     only behind their text, see TextBase), the bar itself takes
     colors.statusbar.segments.bg, and the command line text (no longer on a
-    colored bar) takes colors.statusbar.segments.fg.
+    colored bar) takes colors.statusbar.segments.fg. With glass.enabled on
+    top, the segments are glass pills and the bar is transparent over the
+    frosted panel StatusBar.paintEvent paints.
     """
     return _SEGMENT_QSS.replace('SELECTOR', selector).replace('OPTION', option)
 
@@ -174,6 +180,8 @@ class StatusBar(QWidget):
     release_focus = pyqtSignal()
 
     STYLESHEET = _generate_stylesheet()
+    #: Throttle for re-frosting the glass while the page changes, in ms.
+    _GLASS_INTERVAL = 150
 
     def __init__(self, *, win_id, private, parent=None):
         super().__init__(parent)
@@ -186,6 +194,15 @@ class StatusBar(QWidget):
         self._win_id = win_id
         self._color_flags = ColorFlags()
         self._color_flags.private = private
+
+        # The frosted page strip under the bar (glass.enabled with
+        # statusbar.segments); re-grabbed at most every _GLASS_INTERVAL ms
+        # while the page scrolls or loads.
+        self._frost = glass.Frost(self, adjacent=True)
+        self._glass_timer = usertypes.Timer(self, 'statusbar-glass')
+        self._glass_timer.setSingleShot(True)
+        self._glass_timer.setInterval(self._GLASS_INTERVAL)
+        self._glass_timer.timeout.connect(self._frost.refresh)
 
         self._autohidden = False
         self._autohide_timer = usertypes.Timer(self, 'statusbar-autohide')
@@ -269,6 +286,48 @@ class StatusBar(QWidget):
             self._set_hbox_padding()
         elif option == 'statusbar.widgets':
             self._draw_widgets()
+        elif (option == 'statusbar.segments' or option.startswith('glass.') or
+                option.startswith('colors.glass.')):
+            self._frost.clear()
+            self.refresh_glass()
+            self.update()
+
+    # ---- glass -----------------------------------------------------------
+
+    def _glassy(self):
+        """Whether the bar is a frosted panel with pill segments."""
+        return glass.enabled() and config.val.statusbar.segments
+
+    def refresh_glass(self, *_args):
+        """Re-frost the page strip under the bar soon.
+
+        Connected to whatever changes the page: the current tab, its scroll
+        position, a finished load. Coalesced by the throttle timer.
+        """
+        if not self._glassy() or not self.isVisible():
+            return
+        if not self._glass_timer.isActive():
+            self._glass_timer.start()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if self._glassy():
+            self._frost.refresh()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._frost.clear()
+
+    def paintEvent(self, e):
+        """With glass, the frosted panel goes under the (transparent) bar."""
+        if self._glassy():
+            painter = QPainter(self)
+            lit_edge = ('bottom' if config.val.statusbar.position == 'top'
+                        else 'top')
+            glass.paint_panel(painter, self.rect(), glass.Colors.from_config(),
+                              self._frost, lit_edge=lit_edge)
+            painter.end()
+        super().paintEvent(e)
 
     def _draw_widgets(self):
         """Draw statusbar widgets."""
@@ -497,6 +556,7 @@ class StatusBar(QWidget):
         self.percentage.on_tab_changed(tab)
         self.backforward.on_tab_changed(tab)
         self.maybe_hide()
+        self.refresh_glass()
         assert tab.is_private == self._color_flags.private
 
     @pyqtSlot(browsertab.SelectionState)
@@ -523,6 +583,8 @@ class StatusBar(QWidget):
         """
         super().resizeEvent(e)
         self.resized.emit(self.geometry())
+        if self._glassy() and self.isVisible():
+            self._frost.schedule()
 
     def moveEvent(self, e):
         """Extend moveEvent of QWidget to emit a moved signal afterwards.

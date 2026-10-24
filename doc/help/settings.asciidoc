@@ -3553,6 +3553,7 @@ Default: +pass:[24]+
 === glass.enabled
 Draw qutebrowser's menus as frosted glass.
 The completion, the keyhint popup, prompts and context menus become rounded translucent cards over a blurred copy of the page they cover, in the `colors.glass.*` colors. Takes effect the next time a menu opens.
+With `statusbar.segments`, the statusbar is a frosted panel too, over a blurred copy of the page edge next to it, and its mode and widget segments (NORMAL, ENGAGE, TILE, ...) become translucent pills in their `colors.statusbar.*` colors.
 
 Type: <<types,Bool>>
 

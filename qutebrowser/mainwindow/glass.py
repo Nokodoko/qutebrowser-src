@@ -22,7 +22,7 @@ from qutebrowser.qt.core import (QEvent, QObject, QPoint, QPointF, QRect,
                                  QRectF, QSize, QTimer, Qt)
 from qutebrowser.qt.gui import (QBrush, QColor, QFont, QFontMetrics,
                                 QLinearGradient, QPainter, QPainterPath, QPen,
-                                QPixmap)
+                                QPixmap, QTransform)
 from qutebrowser.qt.widgets import QApplication, QMenu, QWidget
 
 from qutebrowser.config import config
@@ -151,12 +151,18 @@ class Frost:
     Refreshed when the widget shows or resizes. Grabbing lays the window
     out, which can resize the widget again, so refreshes are guarded and
     the ones caused by a resize are deferred to the next event-loop turn.
+
+    With ``adjacent`` a widget outside the page (the statusbar, above or
+    below it) takes the strip of page nearest to it, mirrored, so the glass
+    reads as the page edge continuing under the bar.
     """
 
     def __init__(self, widget: QWidget,
-                 on_change: Callable[[], None] | None = None) -> None:
+                 on_change: Callable[[], None] | None = None, *,
+                 adjacent: bool = False) -> None:
         self._widget = widget
         self._on_change = on_change or widget.update
+        self._adjacent = adjacent
         self.sharp: QPixmap | None = None
         self.frosted: QPixmap | None = None
         self._busy = False
@@ -194,15 +200,30 @@ class Frost:
         if page is None:
             return
         topleft = page.mapFromGlobal(self._widget.mapToGlobal(QPoint(0, 0)))
-        area = QRect(topleft, self._widget.size()).intersected(page.rect())
+        size = self._widget.size()
+        area = QRect(topleft, size).intersected(page.rect())
+        mirror = False
+        if area.isEmpty() and self._adjacent:
+            area = QRect(topleft.x(), 0, size.width(),
+                         min(size.height(), page.height()))
+            if topleft.y() >= page.height():
+                area.moveBottom(page.height() - 1)
+            area = area.intersected(page.rect())
+            mirror = True
         if area.isEmpty():
             return
         with debug.log_time(log.misc, 'Frosting glass for {!r}'.format(
                 type(self._widget).__name__)):
-            sharp = QPixmap(self._widget.size())
+            grabbed = page.grab(area)
+            if mirror:
+                grabbed = grabbed.transformed(QTransform().scale(1, -1))
+                offset = QPoint(area.left() - topleft.x(), 0)
+            else:
+                offset = area.topLeft() - topleft
+            sharp = QPixmap(size)
             sharp.fill(Qt.GlobalColor.black)
             painter = QPainter(sharp)
-            painter.drawPixmap(area.topLeft() - topleft, page.grab(area))
+            painter.drawPixmap(offset, grabbed)
             painter.end()
             self.sharp = sharp
             self.frosted = blur(sharp, config.val.glass.blur)
@@ -223,15 +244,46 @@ def _sheen(painter: QPainter, rect: QRectF, radius: float) -> None:
 
 
 def paint_panel(painter: QPainter, rect: QRect, colors: Colors,
-                frost: Frost | None = None) -> None:
-    """A full-width panel: frosted page, tint, a lit top edge."""
+                frost: Frost | None = None, *,
+                lit_edge: str = 'top') -> None:
+    """A full-width panel: frosted page, tint, a lit edge.
+
+    The lit edge is the one facing the page: the top, or the bottom for a
+    panel above the page (``lit_edge='bottom'``).
+    """
     if frost is not None and frost.frosted is not None:
         painter.drawPixmap(rect.topLeft(), frost.frosted)
     painter.fillRect(rect, colors.bg)
-    painter.fillRect(QRect(rect.left(), rect.top(), rect.width(), 1),
+    if lit_edge == 'bottom':
+        border, light = rect.bottom(), rect.bottom() - 1
+    else:
+        border, light = rect.top(), rect.top() + 1
+    painter.fillRect(QRect(rect.left(), border, rect.width(), 1),
                      colors.border)
-    painter.fillRect(QRect(rect.left(), rect.top() + 1, rect.width(), 1),
+    painter.fillRect(QRect(rect.left(), light, rect.width(), 1),
                      QColor(255, 255, 255, 22))
+
+
+def paint_pill(painter: QPainter, rect: QRect, color: QColor) -> None:
+    """A statusbar segment as a glass pill.
+
+    The mode color, slightly translucent over the panel, with the lit edge
+    of a card. Self-contained (no config access) so the statusbar widgets
+    can paint it wherever they are used.
+    """
+    if rect.isEmpty():
+        return
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pill = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+    radius = pill.height() / 2
+    fill = QColor(color)
+    fill.setAlpha(min(fill.alpha(), 225))
+    painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
+    painter.setBrush(fill)
+    painter.drawRoundedRect(pill, radius, radius)
+    _sheen(painter, pill, radius)
+    painter.restore()
 
 
 def paint_surface(painter: QPainter, rect: QRect, colors: Colors,

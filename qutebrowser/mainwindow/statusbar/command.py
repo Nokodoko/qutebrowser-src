@@ -17,6 +17,7 @@ from qutebrowser.keyinput import modeman, modeparsers
 from qutebrowser.api import cmdutils
 from qutebrowser.misc import cmdhistory, editor
 from qutebrowser.misc import miscwidgets as misc
+from qutebrowser.mainwindow import glass
 from qutebrowser.mainwindow.statusbar import textbase
 from qutebrowser.utils import usertypes, log, objreg, message, utils
 from qutebrowser.config import config
@@ -38,6 +39,7 @@ class Command(misc.CommandLineEdit):
     Attributes:
         _win_id: The window ID this widget is associated with.
         _segment_bg: The segment background color.
+        _segment_glass: Whether the segment is painted as a glass pill.
 
     Signals:
         got_cmd: Emitted when a command is triggered by the user.
@@ -65,6 +67,7 @@ class Command(misc.CommandLineEdit):
         super().__init__(parent)
         self._win_id = win_id
         self._segment_bg = QColor()
+        self._segment_glass = False
         if not private:
             command_history = objreg.get('command-history')
             self.history.history = command_history.data
@@ -99,9 +102,25 @@ class Command(misc.CommandLineEdit):
         self._update_segment_margins()
         self.update()
 
+    @pyqtProperty(bool)
+    def segmentGlass(self) -> bool:  # noqa: N802
+        """Getter for segmentGlass, so the stylesheet can set it."""
+        return self._segment_glass
+
+    @segmentGlass.setter  # type: ignore[no-redef]
+    def segmentGlass(self, value: bool) -> None:  # noqa: N802
+        """Setter for segmentGlass; re-pads the text and repaints."""
+        self._segment_glass = bool(value)
+        self._update_segment_margins()
+        self.update()
+
+    def _segment_padding(self) -> int:
+        return textbase.segment_padding(self, self._segment_bg,
+                                        self._segment_glass)
+
     def _update_segment_margins(self) -> None:
         """Reserve the segment padding on both sides of the text."""
-        padding = textbase.segment_padding(self, self._segment_bg)
+        padding = self._segment_padding()
         self.setTextMargins(padding, 0, padding, 0)
 
     def changeEvent(self, e: QEvent | None) -> None:
@@ -125,12 +144,17 @@ class Command(misc.CommandLineEdit):
         segment = QRect(text_left - padding, 0,
                         text_width + 2 * padding, self.height())
         painter = QPainter(self)
-        painter.fillRect(segment.intersected(self.rect()), self._segment_bg)
+        if self._segment_glass:
+            glass.paint_pill(painter, segment.intersected(self.rect()),
+                             self._segment_bg)
+        else:
+            painter.fillRect(segment.intersected(self.rect()),
+                             self._segment_bg)
         painter.end()
 
     def paintEvent(self, e: QPaintEvent | None) -> None:
         """Extend QLineEdit::paintEvent to paint the segment behind the text."""
-        padding = textbase.segment_padding(self, self._segment_bg)
+        padding = self._segment_padding()
         if padding and self.text():
             self._paint_segment(padding)
         super().paintEvent(e)
