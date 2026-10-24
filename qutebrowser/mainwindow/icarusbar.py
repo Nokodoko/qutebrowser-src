@@ -19,9 +19,11 @@ asks for something to be done on the page. The bar runs in icarus mode,
 which passes keys through to it; its own keys follow the nvim chat:
 
     <Return>        send (INSERT), <Shift+Return> a new line
-    <Escape>        INSERT -> NORMAL; in NORMAL, close
-    i, a            NORMAL -> INSERT
-    j/k, <Ctrl+d>/<Ctrl+u>  scroll the transcript
+    <Escape>        INSERT -> NORMAL; in NORMAL, close (q too)
+    NORMAL          vim on the input (icarus/vim.py): motions, d/c/y, p,
+                    u and <Ctrl+r>, i/a/I/A/o/O; a j/k/gg/G the input
+                    cannot take scrolls the transcript
+    <Ctrl+d>/<Ctrl+u>  scroll the transcript
     <Ctrl+c>        stop a running turn, else close
     <Ctrl+o>        the models card; <Tab> moves between the cards
     <Ctrl+n>        new session for this tab
@@ -32,7 +34,7 @@ import html
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
                                  pyqtSignal, pyqtSlot)
-from qutebrowser.qt.gui import QKeyEvent, QPainter
+from qutebrowser.qt.gui import QKeyEvent, QPainter, QTextCursor
 from qutebrowser.qt.widgets import (QLineEdit, QListWidget, QListWidgetItem,
                                     QPlainTextEdit, QSizePolicy, QTextBrowser,
                                     QWidget)
@@ -41,6 +43,7 @@ from qutebrowser.api import cmdutils
 from qutebrowser.config import config, stylesheet
 from qutebrowser.icarus import client as clientmod
 from qutebrowser.icarus import conversation
+from qutebrowser.icarus import vim
 from qutebrowser.keyinput import modeman
 from qutebrowser.mainwindow import glass
 from qutebrowser.utils import message, objreg, usertypes, utils
@@ -98,6 +101,27 @@ def render(entries: list[conversation.Entry]) -> str:
     return '\n\n'.join(parts)
 
 
+#: Keys NORMAL leaves to the editor (they only move the cursor).
+_NAV_KEYS = {Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
+             Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_PageUp,
+             Qt.Key.Key_PageDown}
+
+
+def _to_u16(text: str, pos: int) -> int:
+    """A str index as a Qt (UTF-16) text position."""
+    return len(text[:pos].encode('utf-16-le')) // 2
+
+
+def _from_u16(text: str, pos: int) -> int:
+    """A Qt (UTF-16) text position as a str index."""
+    units = 0
+    for i, ch in enumerate(text):
+        if units >= pos:
+            return i
+        units += 2 if ord(ch) > 0xFFFF else 1
+    return len(text)
+
+
 class IcarusBar(QWidget):
 
     """The bar of one window, over the current tab's conversation.
@@ -140,6 +164,7 @@ class IcarusBar(QWidget):
         self._conv: conversation.Conversation | None = None
         self._tab = None
         self._mode = 'INSERT'
+        self._vim = vim.Normal()
         self._models_open = False
         self._frost = glass.Frost(self)
 
@@ -361,9 +386,56 @@ class IcarusBar(QWidget):
     # ---- keys ------------------------------------------------------------
 
     def _set_mode(self, mode: str) -> None:
+        """INSERT or NORMAL; NORMAL gets vim's block cursor.
+
+        The input stays editable in NORMAL (a read-only QPlainTextEdit hides
+        its cursor); _input_key keeps typed text from reaching it.
+        """
+        if mode == 'NORMAL' and self._mode == 'INSERT':
+            text, pos = self._buffer()
+            self._move(vim.escape_pos(text, pos))
         self._mode = mode
-        self._input.setReadOnly(mode == 'NORMAL')
+        self._vim.reset()
+        width = self._input.fontMetrics().horizontalAdvance('M')
+        self._input.setCursorWidth(width if mode == 'NORMAL' else 2)
         self.update()
+
+    # The buffer and cursor in str indices: Qt counts UTF-16 code units,
+    # which differ from Python's once an emoji is in the input.
+
+    def _buffer(self) -> tuple[str, int]:
+        text = self._input.toPlainText()
+        return text, _from_u16(text, self._input.textCursor().position())
+
+    def _move(self, pos: int) -> None:
+        cursor = self._input.textCursor()
+        cursor.setPosition(_to_u16(self._input.toPlainText(), pos))
+        self._input.setTextCursor(cursor)
+
+    def _vim_key(self, key: str) -> bool:
+        """Run one NORMAL key through the vim engine."""
+        text, pos = self._buffer()
+        out = self._vim.feed(key, text, pos)
+        if not out.handled:
+            return True  # NORMAL swallows what it does not know
+        if out.history == 'undo':
+            self._input.undo()
+            text, pos = self._buffer()
+            self._move(vim.clamp(text, pos))
+        if out.edit is not None:
+            start, end, new = out.edit
+            cursor = self._input.textCursor()
+            cursor.setPosition(_to_u16(text, start))
+            cursor.setPosition(_to_u16(text, end),
+                               QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertText(new)
+        if out.pos is not None:
+            self._move(out.pos)
+        if out.scroll:
+            self._scroll({1: 0.1, -1: -0.1, 2: 1e6, -2: -1e6}[out.scroll])
+        if out.insert:
+            self._set_mode('INSERT')
+        return True
 
     def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
         if event is None:
@@ -414,22 +486,26 @@ class IcarusBar(QWidget):
             return False
         # NORMAL
         text = event.text()
-        if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
-            self.close_bar()
-        elif text in ('i', 'a'):
-            self._set_mode('INSERT')
-        elif text == 'j':
-            self._scroll(0.1)
-        elif text == 'k':
-            self._scroll(-0.1)
-        elif text == 'G':
-            self._scroll(1e6)
-        elif text == 'g':
-            self._scroll(-1e6)
+        ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        if key == Qt.Key.Key_Escape:
+            if self._vim.pending:
+                self._vim.reset()
+            else:
+                self.close_bar()
+        elif ctrl and key == Qt.Key.Key_R:
+            self._input.redo()
+            buf, pos = self._buffer()
+            self._move(vim.clamp(buf, pos))
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._submit()
-        else:
-            return False
+        elif text == 'q' and not self._vim.pending:
+            self.close_bar()
+        elif len(text) == 1 and text.isprintable():
+            return self._vim_key(text)
+        elif key in _NAV_KEYS:
+            self._vim.reset()
+            self._vim.forget_column()
+            return False  # arrows and friends move the cursor as usual
         return True
 
     def _models_key(self, event: QKeyEvent) -> bool:
