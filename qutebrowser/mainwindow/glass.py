@@ -317,11 +317,14 @@ def paint_surface(painter: QPainter, rect: QRect, colors: Colors,
 
 
 def paint_card(painter: QPainter, outer: QRect, font: QFont,
-               colors: Colors, title: str, right: str = '') -> None:
+               colors: Colors, title: str, right: str = '', *,
+               center: bool = False,
+               title_bg: QColor | None = None) -> None:
     """A rounded card on a panel, with a title chip in its top border.
 
     ``right`` goes into a quieter outlined chip at the right end of the
-    border, telescope's match counter.
+    border, telescope's match counter. ``center`` puts the title chip in the
+    middle of the border (a mode chip), ``title_bg`` colors it.
     """
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -338,9 +341,11 @@ def paint_card(painter: QPainter, outer: QRect, font: QFont,
     painter.setFont(chip_font)
     if title:
         width = metrics.horizontalAdvance(title) + 2 * INNER + 4
-        chip = QRectF(card.left() + RADIUS + 4, top, width, height)
+        left = (card.center().x() - width / 2 if center
+                else card.left() + RADIUS + 4)
+        chip = QRectF(left, top, width, height)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(colors.title_bg)
+        painter.setBrush(colors.title_bg if title_bg is None else title_bg)
         painter.drawRoundedRect(chip, height / 2, height / 2)
         painter.setPen(colors.title_fg)
         painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, title)
