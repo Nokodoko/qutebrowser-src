@@ -766,13 +766,14 @@ class ConfigAPI:
                 raise configexc.Error("Can't bind {key} to None (maybe you "
                                       "want to use config.unbind('{key}') "
                                       "instead?)".format(key=key))
-            self._keyconfig.bind(seq, command, mode=mode)
+            # Committed once in finalize(): see KeyConfig.bind(update=False).
+            self._keyconfig.bind(seq, command, mode=mode, update=False)
 
     def unbind(self, key: str, mode: str = 'normal') -> None:
         """Unbind a key from a command, with an optional key mode."""
         with self._handle_error(f"unbinding '{key}'"):
             seq = keyutils.KeySequence.parse(key)
-            self._keyconfig.unbind(seq, mode=mode)
+            self._keyconfig.unbind(seq, mode=mode, update=False)
 
     def source(self, filename: str) -> None:
         """Read the given config file from disk."""

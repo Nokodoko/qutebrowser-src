@@ -179,9 +179,28 @@ class BaseKeyParser(QObject):
         self._do_log = do_log
         self.passthrough = passthrough
         self._supports_count = supports_count
-        self.bindings = BindingTrie()
+        self._bindings = BindingTrie()
+        self._bindings_dirty = False
         self._read_config()
         config.instance.changed.connect(self._on_config_changed)
+
+    @property
+    def bindings(self) -> BindingTrie:
+        """The binding trie, re-read lazily after a config change.
+
+        A config.py with hundreds of config.bind() calls emits one change per
+        bind; re-reading every parser in every window synchronously for each
+        of them blocks the main loop for minutes. Defer the re-read until the
+        bindings are actually needed, so a burst of changes costs one read.
+        """
+        if self._bindings_dirty:
+            self._read_config()
+        return self._bindings
+
+    @bindings.setter
+    def bindings(self, value: BindingTrie) -> None:
+        self._bindings = value
+        self._bindings_dirty = False
 
     def __repr__(self) -> str:
         return utils.get_repr(self, mode=self._mode,
@@ -341,16 +360,18 @@ class BaseKeyParser(QObject):
 
     @config.change_filter('bindings')
     def _on_config_changed(self) -> None:
-        self._read_config()
+        self._bindings_dirty = True
 
     def _read_config(self) -> None:
         """Read the configuration."""
-        self.bindings = BindingTrie()
+        bindings = BindingTrie()
         config_bindings = config.key_instance.get_bindings_for(self._mode.name)
 
         for key, cmd in config_bindings.items():
             assert cmd
-            self.bindings[key] = cmd
+            bindings[key] = cmd
+
+        self.bindings = bindings
 
     def execute(self, cmdstr: str, count: int | None = None) -> None:
         """Handle a completed keychain.

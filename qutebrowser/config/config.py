@@ -211,8 +211,15 @@ class KeyConfig:
              key: keyutils.KeySequence,
              command: str, *,
              mode: str,
-             save_yaml: bool = False) -> None:
-        """Add a new binding from key to command."""
+             save_yaml: bool = False,
+             update: bool = True) -> None:
+        """Add a new binding from key to command.
+
+        With update=False the change only lands in the mutable
+        bindings.commands object; the caller must run update_mutables()
+        itself. config.py uses that so hundreds of binds commit (and emit one
+        change) once at finalize instead of once per bind.
+        """
         if not command.strip():
             raise configexc.KeybindingError(
                 "Can't add binding '{}' with empty command in {} "
@@ -226,7 +233,8 @@ class KeyConfig:
         if mode not in bindings:
             bindings[mode] = {}
         bindings[mode][str(key)] = command
-        self._config.update_mutables(save_yaml=save_yaml)
+        if update:
+            self._config.update_mutables(save_yaml=save_yaml)
 
     def bind_default(self,
                      key: keyutils.KeySequence, *,
@@ -246,13 +254,20 @@ class KeyConfig:
     def unbind(self,
                key: keyutils.KeySequence, *,
                mode: str = 'normal',
-               save_yaml: bool = False) -> None:
-        """Unbind the given key in the given mode."""
+               save_yaml: bool = False,
+               update: bool = True) -> None:
+        """Unbind the given key in the given mode.
+
+        See bind() for update=False.
+        """
         self._validate(key, mode)
 
         bindings_commands = self._config.get_mutable_obj('bindings.commands')
 
-        if val.bindings.commands[mode].get(key, None) is not None:
+        # Look at the mutable object, not the committed value: with
+        # update=False an earlier bind() in the same config.py is still
+        # pending there.
+        if bindings_commands.get(mode, {}).get(str(key), None) is not None:
             # In custom bindings -> remove it
             del bindings_commands[mode][str(key)]
         elif key in val.bindings.default[mode]:
@@ -264,7 +279,8 @@ class KeyConfig:
             raise configexc.KeybindingError(
                 "Can't find binding '{}' in {} mode".format(key, mode))
 
-        self._config.update_mutables(save_yaml=save_yaml)
+        if update:
+            self._config.update_mutables(save_yaml=save_yaml)
 
 
 class Config(QObject):
