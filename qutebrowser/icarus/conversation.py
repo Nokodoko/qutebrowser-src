@@ -12,6 +12,12 @@ from qutebrowser.qt.core import QObject, pyqtSignal
 from qutebrowser.icarus import client as clientmod
 
 
+#: How many transcript entries a saved qutebrowser session keeps per tab.
+SAVED_ENTRIES = 50
+
+_KINDS = {'you', 'icarus', 'step', 'error'}
+
+
 @dataclasses.dataclass
 class Entry:
 
@@ -86,6 +92,48 @@ class Conversation(QObject):
         self.entries.clear()
         self.session = ''
         self._client.forget(self.target)
+        self.changed.emit()
+
+    def state(self) -> dict[str, Any] | None:
+        """What a qutebrowser session saves of this chat; None when empty.
+
+        The serve-side session id is what lets the chat carry on after a
+        restart (serve re-binds it to the tab's new DevTools id); the
+        transcript tail is only there so the bar can show it again.
+        """
+        if not self.session and not self.entries:
+            return None
+        data: dict[str, Any] = {
+            'session': self.session,
+            'entries': [[e.kind, e.text] for e in self.entries[-SAVED_ENTRIES:]],
+        }
+        if self.model is not None:
+            data['model'] = str(self.model)
+        return data
+
+    def restore(self, data: Any) -> None:
+        """Take back a state() saved by a qutebrowser session.
+
+        The data comes from a hand-editable YAML file, so anything malformed
+        is skipped rather than raised.
+        """
+        if not isinstance(data, dict):
+            return
+        session = data.get('session')
+        if isinstance(session, str):
+            self.session = session
+        model = data.get('model')
+        if isinstance(model, str) and '/' in model:
+            provider, model_id = model.split('/', 1)
+            if provider and model_id:
+                self.model = clientmod.Model(provider, model_id)
+        entries = data.get('entries')
+        if isinstance(entries, list):
+            self.entries = [
+                Entry(kind, text) for kind, text in
+                (e for e in entries if isinstance(e, list) and len(e) == 2)
+                if kind in _KINDS and isinstance(text, str)
+            ]
         self.changed.emit()
 
     def last_reply(self) -> str:

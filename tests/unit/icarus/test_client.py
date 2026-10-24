@@ -175,6 +175,41 @@ def test_conversation_open_and_reset(conv, qtbot):
     assert c.entries == [] and c.session == ''
 
 
+def test_conversation_state_round_trip(conv, monkeypatch):
+    c, fake = conv
+    assert c.state() is None
+    monkeypatch.setattr(conversation, 'SAVED_ENTRIES', 2)
+    c.session = 'S1'
+    c.model = client.Model('llamacpp-monty-qwen1', 'qwen3.8-flash-next')
+    c.entries = [conversation.Entry('you', 'a'), conversation.Entry('icarus', 'b'),
+                 conversation.Entry('step', 'c')]
+    state = c.state()
+    assert state == {
+        'session': 'S1',
+        'model': 'llamacpp-monty-qwen1/qwen3.8-flash-next',
+        'entries': [['icarus', 'b'], ['step', 'c']],
+    }
+
+    other = conversation.Conversation(fake, 'NEW-TARGET')
+    other.restore(state)
+    assert other.session == 'S1' and other.model == c.model
+    assert [(e.kind, e.text) for e in other.entries] == [('icarus', 'b'), ('step', 'c')]
+    other.submit('more')
+    assert fake.turns[-1].body['session'] == 'S1'
+    assert fake.turns[-1].body['tab'] == 'NEW-TARGET'
+
+
+@pytest.mark.parametrize('data', [
+    None, 'junk', [], {'session': 3, 'model': 'nomodel', 'entries': 'x'},
+    {'entries': [['bogus', 'x'], ['you'], ['you', 5], 'x', ['you', 'ok']]},
+])
+def test_conversation_restore_tolerates_junk(conv, data):
+    c, _fake = conv
+    c.restore(data)
+    assert c.session == '' and c.model is None
+    assert [(e.kind, e.text) for e in c.entries] in ([], [('you', 'ok')])
+
+
 def test_render_transcript():
     entries = [
         conversation.Entry('you', 'click sign in'),

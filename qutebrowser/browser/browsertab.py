@@ -129,6 +129,9 @@ class TabData:
         icarus: The tab's icarus bar conversation
                 (icarus.conversation.Conversation), created when the bar
                 first opens on it.
+        icarus_saved: The icarus conversation state a session restored, kept
+                      until the bar first opens on the tab (and saved again
+                      while it has not).
     """
 
     keep_icon: bool = False
@@ -149,6 +152,7 @@ class TabData:
     splitter: miscwidgets.InspectorSplitter | None = None
     session_history: list[dict[str, Any]] | None = None
     icarus: Any = None
+    icarus_saved: dict[str, Any] | None = None
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or

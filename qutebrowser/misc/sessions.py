@@ -267,6 +267,15 @@ class SessionManager(QObject):
             for entry in data['history']:
                 entry['pinned'] = tab.data.pinned
                 entry['tags'] = tab.data.tags
+
+        # The tab's icarus bar chat; a restored one the bar has not opened
+        # on yet is saved as it was restored.
+        if tab.data.icarus is not None:
+            icarus = tab.data.icarus.state()
+        else:
+            icarus = copy.deepcopy(tab.data.icarus_saved)
+        if icarus:
+            data['icarus'] = icarus
         return data
 
     def _save_all(self, *, only_window=None, with_private=False, with_history=True):
@@ -398,6 +407,8 @@ class SessionManager(QObject):
         entries = []
         # Kept before the lazy-restore rewrite below marks entries inactive.
         new_tab.data.session_history = copy.deepcopy(data['history'])
+        if isinstance(data.get('icarus'), dict):
+            new_tab.data.icarus_saved = copy.deepcopy(data['icarus'])
         lazy_load: MutableSequence[_JsonType] = []
         # use len(data['history'])
         # -> dropwhile empty if not session.lazy_session

@@ -175,6 +175,11 @@ class IcarusBar(QWidget):
             conv.open_url.connect(self._open_url)
             tab.data.icarus = conv
             self._seed_model(conv)
+            if tab.data.icarus_saved is not None:
+                # Restored by a session: carry on with the same serve-side
+                # session (serve re-binds it to this tab's new DevTools id).
+                conv.restore(tab.data.icarus_saved)
+                tab.data.icarus_saved = None
         self._attach(tab, conv)
         client().fetch_models(lambda _models: self._on_models())
         self._reposition()
