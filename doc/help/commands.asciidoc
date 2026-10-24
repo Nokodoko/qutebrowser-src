@@ -80,6 +80,10 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<history,history>>|Show browsing history.
 |<<history-clear,history-clear>>|Clear all browsing history.
 |<<home,home>>|Open main startpage in current tab.
+|<<icarus,icarus>>|Open the icarus bar on the current tab.
+|<<icarus-close,icarus-close>>|Close the icarus bar.
+|<<icarus-model,icarus-model>>|Pick the model the current tab's icarus conversation runs on.
+|<<icarus-new,icarus-new>>|Start a new icarus conversation for the current tab.
 |<<insert-text,insert-text>>|Insert text at cursor position.
 |<<jseval,jseval>>|Evaluate a JavaScript string.
 |<<jump-mark,jump-mark>>|Jump to the mark named by `key`.
@@ -828,6 +832,35 @@ Note this only clears the global history (e.g. `~/.local/share/qutebrowser/histo
 [[home]]
 === home
 Open main startpage in current tab.
+
+[[icarus]]
+=== icarus
+Syntax: +:icarus [*--toggle*]+
+
+Open the icarus bar on the current tab.
+
+Each tab keeps its own conversation; icarus serve (icarus.url) runs it and drives the tab when asked to do something on the page.
+
+==== optional arguments
+* +*-t*+, +*--toggle*+: Close the bar when it is already open.
+
+[[icarus-close]]
+=== icarus-close
+Close the icarus bar.
+
+[[icarus-model]]
+=== icarus-model
+Syntax: +:icarus-model ['model']+
+
+Pick the model the current tab's icarus conversation runs on.
+
+==== positional arguments
+* +'model'+: provider/model or a bare model id. Without it, the models card opens.
+
+
+[[icarus-new]]
+=== icarus-new
+Start a new icarus conversation for the current tab.
 
 [[insert-text]]
 === insert-text

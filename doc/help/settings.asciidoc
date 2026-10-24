@@ -62,6 +62,8 @@
 |<<colors.hints.bg,colors.hints.bg>>|Background color for hints.
 |<<colors.hints.fg,colors.hints.fg>>|Font color for hints.
 |<<colors.hints.match.fg,colors.hints.match.fg>>|Font color for the matched part of hints.
+|<<colors.icarus.insert.bg,colors.icarus.insert.bg>>|Mode chip of the icarus bar's input while typing (INSERT).
+|<<colors.icarus.normal.bg,colors.icarus.normal.bg>>|Mode chip of the icarus bar's input in NORMAL mode.
 |<<colors.keyhint.bg,colors.keyhint.bg>>|Background color of the keyhint widget.
 |<<colors.keyhint.fg,colors.keyhint.fg>>|Text color for the keyhint widget.
 |<<colors.keyhint.suffix.fg,colors.keyhint.suffix.fg>>|Highlight color for keys to complete the current keychain.
@@ -288,6 +290,9 @@
 |<<hints.selectors,hints.selectors>>|CSS selectors used to determine which elements on a page should have hints.
 |<<hints.uppercase,hints.uppercase>>|Make characters in hint strings uppercase.
 |<<history_gap_interval,history_gap_interval>>|Maximum time (in minutes) between two history items for them to be considered being from the same browsing session.
+|<<icarus.cdp_url,icarus.cdp_url>>|This browser's DevTools endpoint as icarus serve knows it (`browser.cdp_url` or one of `browser.extra_cdp_urls`).
+|<<icarus.model,icarus.model>>|The model a new icarus bar conversation runs on: `provider/model`, or a bare model id, which takes the first provider serving it (local fleet first).
+|<<icarus.url,icarus.url>>|The icarus serve the icarus bar (`:icarus`) talks to.
 |<<input.default_mode,input.default_mode>>|Mode a new window starts in.
 |<<input.escape_quits_reporter,input.escape_quits_reporter>>|Allow Escape to quit the crash reporter.
 |<<input.forward_unbound_keys,input.forward_unbound_keys>>|Which unbound keys to forward to the webview in normal mode.
@@ -600,6 +605,7 @@ Default:
 * +pass:[&lt;Ctrl-R&gt;]+: +pass:[hint --rapid links tab-bg]+
 * +pass:[&lt;Escape&gt;]+: +pass:[mode-leave]+
 * +pass:[&lt;Return&gt;]+: +pass:[hint-follow]+
+- +pass:[icarus]+: empty
 - +pass:[insert]+:
 
 * +pass:[&lt;Ctrl-E&gt;]+: +pass:[edit-text]+
@@ -1300,6 +1306,22 @@ Font color for the matched part of hints.
 Type: <<types,QtColor>>
 
 Default: +pass:[green]+
+
+[[colors.icarus.insert.bg]]
+=== colors.icarus.insert.bg
+Mode chip of the icarus bar's input while typing (INSERT).
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#7AA2F7]+
+
+[[colors.icarus.normal.bg]]
+=== colors.icarus.normal.bg
+Mode chip of the icarus bar's input in NORMAL mode.
+
+Type: <<types,QtColor>>
+
+Default: +pass:[#95C561]+
 
 [[colors.keyhint.bg]]
 === colors.keyhint.bg
@@ -3814,6 +3836,33 @@ Items with less time between them are grouped when being displayed in `:history`
 Type: <<types,Int>>
 
 Default: +pass:[30]+
+
+[[icarus.cdp_url]]
+=== icarus.cdp_url
+This browser's DevTools endpoint as icarus serve knows it (`browser.cdp_url` or one of `browser.extra_cdp_urls`).
+Empty derives it from `QTWEBENGINE_REMOTE_DEBUGGING`.
+
+Type: <<types,String>>
+
+Default: empty
+
+[[icarus.model]]
+=== icarus.model
+The model a new icarus bar conversation runs on: `provider/model`, or a bare model id, which takes the first provider serving it (local fleet first).
+`<Ctrl+o>` in the bar (or `:icarus-model`) swaps a tab's model. Browser control is always laya's, whatever the model.
+
+Type: <<types,String>>
+
+Default: +pass:[qwen3.8-flash-next]+
+
+[[icarus.url]]
+=== icarus.url
+The icarus serve the icarus bar (`:icarus`) talks to.
+The bar sends each submit to its `/bar/turn` route together with the tab it was made on; serve keeps one conversation per tab and drives the tab itself when the submit asks for something to be done on the page.
+
+Type: <<types,String>>
+
+Default: +pass:[http://127.0.0.1:7654]+
 
 [[input.default_mode]]
 === input.default_mode
