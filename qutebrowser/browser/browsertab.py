@@ -123,6 +123,9 @@ class TabData:
         splitter: InspectorSplitter used to show inspector inside the tab.
         tag_rule_done: Whether the tag rule has been evaluated for this tab
                        (rules fire once).
+        session_history: The session history entries this tab was restored
+                         from, saved again while the page's own history is
+                         still empty (a lazy or stalled restore).
     """
 
     keep_icon: bool = False
@@ -141,6 +144,7 @@ class TabData:
     input_mode: usertypes.KeyMode = usertypes.KeyMode.normal
     last_navigation: usertypes.NavigationRequest | None = None
     splitter: miscwidgets.InspectorSplitter | None = None
+    session_history: list[dict[str, Any]] | None = None
 
     def should_show_icon(self) -> bool:
         return (config.val.tabs.favicons.show == 'always' or

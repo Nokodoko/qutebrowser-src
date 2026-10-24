@@ -6,6 +6,7 @@
 
 import os
 import os.path
+import copy
 import itertools
 import urllib
 import shutil
@@ -256,6 +257,16 @@ class SessionManager(QObject):
                     data['history'][-1]['active'] = True
             else:
                 data['history'].append(item_data)
+
+        if with_history and not data['history'] and tab.data.session_history:
+            # A restored tab whose page has not committed a load yet (lazy
+            # restore, a page still loading under memory pressure) has no
+            # history: save what it was restored from instead of dropping
+            # its URLs, which the next restore would turn into a blank tab.
+            data['history'] = copy.deepcopy(tab.data.session_history)
+            for entry in data['history']:
+                entry['pinned'] = tab.data.pinned
+                entry['tags'] = tab.data.tags
         return data
 
     def _save_all(self, *, only_window=None, with_private=False, with_history=True):
@@ -385,6 +396,8 @@ class SessionManager(QObject):
     def _load_tab(self, new_tab, data):  # noqa: C901
         """Load yaml data into a newly opened tab."""
         entries = []
+        # Kept before the lazy-restore rewrite below marks entries inactive.
+        new_tab.data.session_history = copy.deepcopy(data['history'])
         lazy_load: MutableSequence[_JsonType] = []
         # use len(data['history'])
         # -> dropwhile empty if not session.lazy_session
