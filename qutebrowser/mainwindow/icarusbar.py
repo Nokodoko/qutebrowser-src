@@ -10,9 +10,12 @@ page it drives stays in view above it. It carries the icarus web UI's chat
 over the page: a transcript card titled ``ICARUS · model`` (replies rendered
 as the web UI renders them, the model's thinking, laya's steps, the web UI's
 working strip while a turn runs), an input card whose title chip is the
-input's vi mode, and on the right either the models card (``<Ctrl+o>``) or
-the tools pane (``<Ctrl+t>``, every tool call's arguments and result live).
-Painted with the glass chrome of the other menus (mainwindow/glass.py).
+input's vi mode, and on the right one of the models card (``<Ctrl+o>``), the
+tools pane (``<Ctrl+t>`` / ``<Ctrl+j>``, every tool call's arguments and
+result live) or the editor split (``<Ctrl+g>``: the right half of the tray
+becomes a real nvim on a ``.md`` buffer, icarus serve's GET /editor page in a
+QWebEngineView). Painted with the glass chrome of the other menus
+(mainwindow/glass.py).
 
 Each tab carries its own conversation (``tab.data.icarus``). icarus serve
 keeps the matching session on the site's own page project, drives the tab
@@ -31,16 +34,21 @@ first open, introduces the page (icarus.greet). Keys:
     <Up>/<Down>     recall earlier prompts into an empty input
     /               skills and the bar's own commands (/new /model /tools
                     /steer /queue /thinking)
-    <Ctrl+g>        edit the input in the external editor (editor.command)
+    <Ctrl+g>        edit the input in nvim, split on the right half of the
+                    bar (:wq hands the buffer back, :q discards, <Ctrl+g>
+                    again closes); editor.command only if the split cannot load
     <Ctrl+d>/<Ctrl+u>  scroll the transcript
     <Ctrl+c>        stop a running turn and its queue, else close
-    <Ctrl+o>/<Ctrl+t>  the models card / the tools pane
+    <Ctrl+o>        the models card
+    <Ctrl+t>/<Ctrl+j>  the tools pane (<Ctrl+j> as in the web UI's tool pane)
     <Alt+t>         unfold (or fold) the thinking
     <Ctrl+n>        new session for this tab
     <Ctrl+y>        yank the last answer
 """
 
 import html
+import json
+from urllib.parse import urlencode
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
                                  pyqtSignal, pyqtSlot)
@@ -80,6 +88,7 @@ BAR_COMMANDS = [
     ('/new', 'start a new conversation for this tab'),
     ('/model', '<provider/model> switch this tab\'s model'),
     ('/tools', 'show or hide the tools pane'),
+    ('/editor', 'edit the input in nvim, split on the right'),
     ('/steer', 'a submit while a turn runs steers it'),
     ('/queue', 'a submit while a turn runs waits behind it'),
     ('/thinking', 'unfold or fold the model\'s thinking'),
@@ -107,6 +116,40 @@ def tab_target(tab) -> str:
         return page.devToolsId()
     except (AttributeError, RuntimeError):
         return ''
+
+
+#: The titles the editor split's page sets when nvim is done or the split was
+#: closed without a buffer (static/editorsplit.js on serve).
+EDITOR_DONE = 'icarus-editor:done'
+EDITOR_CANCEL = 'icarus-editor:cancel'
+#: The JavaScript that reads the buffer a finished split parked.
+EDITOR_RESULT_JS = 'JSON.stringify(window.__icarusEditorResult || null)'
+
+
+def editor_url(base: str, seed: str, label: str = 'prompt.md') -> QUrl:
+    """The editor split's page on serve: GET /editor seeded with the input."""
+    url = QUrl(base.rstrip('/') + '/editor')
+    url.setQuery(urlencode({'seed': seed, 'label': label}))
+    return url
+
+
+def editor_result(raw) -> tuple[str, bool] | None:
+    """The (text, auto_send) a finished split parked, or None.
+
+    raw is what EDITOR_RESULT_JS evaluated to: a JSON string, or already a
+    dict when the web view decoded it.
+    """
+    if not raw:
+        return None
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(data, dict) or not isinstance(data.get('text'), str):
+        return None
+    return data['text'], bool(data.get('autoSend'))
 
 
 def popup_items(text: str, skills: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -207,7 +250,7 @@ class IcarusBar(QWidget):
         self._tab = None
         self._mode = 'INSERT'
         self._vim = vim.Normal()
-        #: The right-hand card: None, 'models' or 'tools'.
+        #: The right-hand card: None, 'models', 'tools' or 'editor'.
         self._side: str | None = None
         self._mid_turn = config.val.icarus.mid_turn
         self._expand_thinking = False
@@ -217,6 +260,8 @@ class IcarusBar(QWidget):
         self._recall = -1
         self._recalling = False
         self._editor: QObject | None = None
+        #: The editor split's web view (serve's /editor page), made on first use.
+        self._editor_view: QWidget | None = None
         self._frost = glass.Frost(self)
 
         self._transcript = QTextBrowser(self)
@@ -300,6 +345,7 @@ class IcarusBar(QWidget):
     def close_bar(self) -> None:
         if not self.isVisible():
             return
+        self._leave_editor()
         self.hide()
         self._frost.clear()
         modeman.leave(self._win_id, usertypes.KeyMode.icarus, 'icarus bar',
@@ -317,6 +363,7 @@ class IcarusBar(QWidget):
     @pyqtSlot(usertypes.KeyMode)
     def _on_mode_left(self, mode: usertypes.KeyMode) -> None:
         if mode == usertypes.KeyMode.icarus and self.isVisible():
+            self._leave_editor()
             self.hide()
             self._frost.clear()
 
@@ -370,18 +417,29 @@ class IcarusBar(QWidget):
         self._refresh()
 
     def _toggle_side(self, side: str, show: bool | None = None) -> None:
-        """Open or close the right-hand card (models or tools)."""
+        """Open or close the right-hand card (models, tools or editor)."""
         if show is None:
             show = self._side != side
+        was = self._side
         self._side = side if show else (None if self._side == side else self._side)
         models, tools = self._side == 'models', self._side == 'tools'
+        editor = self._side == 'editor'
         self._filter.setVisible(models)
         self._models.setVisible(models)
         self._tools.setVisible(tools)
+        if self._editor_view is not None:
+            self._editor_view.setVisible(editor)
+            if was == 'editor' and not editor:
+                # Leaving the split ends its nvim: the page goes, so the WS
+                # /pty session closes and serve reaps the editor.
+                self._editor_view.setUrl(QUrl('about:blank'))
         if models:
             self._filter.clear()
             self._fill_models()
             self._filter.setFocus()
+        elif editor:
+            assert self._editor_view is not None
+            self._editor_view.setFocus()
         else:
             self._input.setFocus()
         if tools:
@@ -443,8 +501,8 @@ class IcarusBar(QWidget):
                 f'<pre><b>{html.escape(WORDMARK)}</b></pre>'
                 f'<p style="opacity:0.6">&nbsp;&nbsp;{tag} · drives this tab</p>'
                 '<p style="opacity:0.6">&nbsp;&nbsp;/ skills &amp; commands · '
-                'Tab suggestions · &lt;Ctrl+t&gt; tools · &lt;Ctrl+o&gt; models · '
-                '&lt;Ctrl+g&gt; editor</p>')
+                'Tab suggestions · &lt;Ctrl+j&gt; tools · &lt;Ctrl+o&gt; models · '
+                '&lt;Ctrl+g&gt; nvim</p>')
 
     def _on_link(self, url: QUrl) -> None:
         self._open_url(url.toString())
@@ -492,6 +550,8 @@ class IcarusBar(QWidget):
                 self._toggle_side('models', True)
         elif name == '/tools':
             self._toggle_side('tools')
+        elif name == '/editor':
+            self.open_editor()
         elif name in ('/steer', '/queue'):
             self._mid_turn = name[1:]
             message.info(f"icarus: a submit while a turn runs now {name[1:]}s")
@@ -606,6 +666,77 @@ class IcarusBar(QWidget):
         return True
 
     def open_editor(self) -> None:
+        """Edit the input in nvim, split on the right half of the bar.
+
+        The split is icarus serve's GET /editor page (the web UI's editor
+        flyout as a whole page: xterm over WS /pty, nvim on a ``.md``
+        tempfile) in a QWebEngineView. nvim owns every key while it has
+        focus; ``:wq`` hands the buffer back to the input, ``:q`` discards
+        it, and <Ctrl+g> from the input closes the split. If the page
+        cannot load, the external editor (editor.command) takes over.
+        """
+        if self._side == 'editor':
+            self._toggle_side('editor', False)
+            return
+        view = self._editor_view or self._make_editor_view()
+        if view is None:
+            self._open_external_editor()
+            return
+        self._toggle_side('editor', True)
+        view.setUrl(editor_url(config.val.icarus.url, self._input.toPlainText()))
+
+    def _make_editor_view(self) -> QWidget | None:
+        """The split's web view, over the bar's glass; None without QtWebEngine."""
+        try:
+            # Imported here like misc.editor: QtWebEngine must not be pulled
+            # in while mainwindow is being imported.
+            from qutebrowser.qt.webenginewidgets import QWebEngineView  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            return None
+        view = QWebEngineView(self)
+        page = view.page()
+        assert page is not None
+        page.setBackgroundColor(QColor(0, 0, 0, 0))  # the glass shows through
+        view.titleChanged.connect(self._on_editor_title)
+        view.loadFinished.connect(self._on_editor_loaded)
+        view.hide()
+        self._editor_view = view
+        return view
+
+    def _leave_editor(self) -> None:
+        if self._side == 'editor':
+            self._toggle_side('editor', False)
+
+    def _on_editor_title(self, title: str) -> None:
+        """The split's page reports over its title (static/editorsplit.js)."""
+        if self._side != 'editor' or self._editor_view is None:
+            return
+        if title == EDITOR_DONE:
+            page = self._editor_view.page()
+            assert page is not None
+            page.runJavaScript(EDITOR_RESULT_JS, self._on_editor_result)
+        elif title == EDITOR_CANCEL:
+            self._toggle_side('editor', False)
+
+    def _on_editor_result(self, raw) -> None:
+        result = editor_result(raw)
+        self._toggle_side('editor', False)
+        if result is None:
+            return
+        text, send = result
+        self._on_editor_text(text)
+        if send:
+            self._submit()
+
+    def _on_editor_loaded(self, ok: bool) -> None:
+        if ok or self._side != 'editor':
+            return
+        message.error(f"icarus: the editor split could not load "
+                      f"{config.val.icarus.url}/editor; using editor.command")
+        self._toggle_side('editor', False)
+        self._open_external_editor()
+
+    def _open_external_editor(self) -> None:
         """Edit the input in the external editor (editor.command)."""
         # Imported here: misc.editor -> guiprocess -> api.apitypes ->
         # browsertab is a cycle while mainwindow is being imported.
@@ -696,7 +827,7 @@ class IcarusBar(QWidget):
             self.stop()
         elif ctrl and key == Qt.Key.Key_O:
             self._toggle_side('models')
-        elif ctrl and key == Qt.Key.Key_T:
+        elif ctrl and key in (Qt.Key.Key_T, Qt.Key.Key_J):
             self._toggle_side('tools')
         elif ctrl and key == Qt.Key.Key_N:
             self.new_session()
@@ -774,19 +905,23 @@ class IcarusBar(QWidget):
         return True
 
     def _models_key(self, event: QKeyEvent) -> bool:
-        if self._common_key(event):
-            return True
         key = event.key()
         ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
         row = self._models.currentRow()
+        # The list's own <Ctrl+j>/<Ctrl+k> come before the common keys, where
+        # <Ctrl+j> is the tools pane.
+        if key == Qt.Key.Key_Down or (ctrl and key in (Qt.Key.Key_J, Qt.Key.Key_N)):
+            self._models.setCurrentRow(min(row + 1, self._models.count() - 1))
+            return True
+        if key == Qt.Key.Key_Up or (ctrl and key in (Qt.Key.Key_K, Qt.Key.Key_P)):
+            self._models.setCurrentRow(max(row - 1, 0))
+            return True
+        if self._common_key(event):
+            return True
         if key == Qt.Key.Key_Escape:
             self._toggle_side('models', False)
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._pick_model()
-        elif key == Qt.Key.Key_Down or (ctrl and key in (Qt.Key.Key_J, Qt.Key.Key_N)):
-            self._models.setCurrentRow(min(row + 1, self._models.count() - 1))
-        elif key == Qt.Key.Key_Up or (ctrl and key in (Qt.Key.Key_K, Qt.Key.Key_P)):
-            self._models.setCurrentRow(max(row - 1, 0))
         else:
             return False
         return True
@@ -820,7 +955,11 @@ class IcarusBar(QWidget):
                    glass.chip_height(font) + glass.PAD)
         side = None
         if self._side is not None:
-            width = min(max(rect.width() * 2 // 5, 260), rect.width() // 2)
+            if self._side == 'editor':
+                # The split: nvim gets the right half of the tray outright.
+                width = rect.width() // 2
+            else:
+                width = min(max(rect.width() * 2 // 5, 260), rect.width() // 2)
             side = QRect(rect.right() - width + 1, rect.top(), width,
                          rect.height())
             rect.setRight(side.left() - 1)
@@ -854,6 +993,9 @@ class IcarusBar(QWidget):
                 row = line + 8
                 self._filter.setGeometry(inner.left(), inner.top(), inner.width(), row)
                 self._models.setGeometry(inner.adjusted(0, row + 6, 0, 0))
+            elif self._side == 'editor':
+                if self._editor_view is not None:
+                    self._editor_view.setGeometry(inner)
             else:
                 self._tools.setGeometry(inner)
 
@@ -881,7 +1023,7 @@ class IcarusBar(QWidget):
         session = conv.session[:8] if conv and conv.session else 'new'
         right = f'session {session}'
         if conv and conv.tools and self._side != 'tools':
-            right += f' · {len(conv.tools)} tools <Ctrl+t>'
+            right += f' · {len(conv.tools)} tools <Ctrl+j>'
         glass.paint_card(painter, chat, font, colors, self._title(), right=right)
         mode = self._mode
         chip = (config.val.colors.icarus.insert.bg if mode == 'INSERT'
@@ -894,6 +1036,9 @@ class IcarusBar(QWidget):
         if side is not None and self._side == 'models':
             count = f'{self._models.count()} / {len(client().models)}'
             glass.paint_card(painter, side, font, colors, 'Models', right=count)
+        elif side is not None and self._side == 'editor':
+            glass.paint_card(painter, side, font, colors, 'nvim',
+                             right='prompt.md · :wq return · :q discard · <Ctrl+g> close')
         elif side is not None:
             calls = len(conv.tools) if conv else 0
             glass.paint_card(painter, side, font, colors, 'Tools', right=str(calls))
