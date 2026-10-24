@@ -199,6 +199,46 @@ class Client(QObject):
     def default(self) -> Model | None:
         return self._default
 
+    def get_json(self, path: str, callback: Callable[[Any], None]) -> None:
+        """GET path in the background and hand callback its JSON (None on failure)."""
+        request = QNetworkRequest(self._url(path))
+        request.setTransferTimeout(15000)
+        reply = self._nam.get(request)
+        assert reply is not None
+
+        def on_finished() -> None:
+            reply.deleteLater()
+            data = None
+            if reply.error() == QNetworkReply.NetworkError.NoError:
+                try:
+                    data = json.loads(bytes(reply.readAll()))
+                except ValueError:
+                    pass
+            else:
+                log.misc.debug(f"icarus: GET {path} failed: {reply.errorString()}")
+            callback(data)
+
+        reply.finished.connect(on_finished)
+
+    def fetch_history(self, callback: Callable[[list[str]], None]) -> None:
+        """The shared prompt-history log, oldest first (GET /api/prompt-history)."""
+        self.get_json(f'/api/prompt-history?limit={1000}',
+                      lambda data: callback(data if isinstance(data, list) else []))
+
+    def fetch_skills(self, callback: Callable[[list[tuple[str, str]]], None]) -> None:
+        """The /name commands a bar submit can expand: serve's skills
+        (GET /command, minus the REPL built-ins, which only the REPL runs)."""
+        def on_data(data: Any) -> None:
+            out = []
+            for cmd in data if isinstance(data, list) else []:
+                if not isinstance(cmd, dict) or cmd.get('source') == 'builtin':
+                    continue
+                name = cmd.get('name')
+                if isinstance(name, str) and name.startswith('/'):
+                    out.append((name, str(cmd.get('description') or '')))
+            callback(sorted(out))
+        self.get_json('/command', on_data)
+
     def fetch_models(self, callback: Callable[[list[Model]], None] | None = None) -> None:
         """Refresh the catalog in the background (cold serve takes seconds)."""
         request = QNetworkRequest(self._url('/provider'))

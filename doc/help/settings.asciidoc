@@ -291,6 +291,8 @@
 |<<hints.uppercase,hints.uppercase>>|Make characters in hint strings uppercase.
 |<<history_gap_interval,history_gap_interval>>|Maximum time (in minutes) between two history items for them to be considered being from the same browsing session.
 |<<icarus.cdp_url,icarus.cdp_url>>|This browser's DevTools endpoint as icarus serve knows it (`browser.cdp_url` or one of `browser.extra_cdp_urls`).
+|<<icarus.greet,icarus.greet>>|Whether the icarus bar opens a tab's conversation itself: on the first open it tells you what the page is and what it could do with it.
+|<<icarus.mid_turn,icarus.mid_turn>>|What a submit does while the tab's icarus turn is still running, as the icarus web UI's harness modes do.
 |<<icarus.model,icarus.model>>|The model a new icarus bar conversation runs on: `provider/model`, or a bare model id, which takes the first provider serving it (local fleet first).
 |<<icarus.url,icarus.url>>|The icarus serve the icarus bar (`:icarus`) talks to.
 |<<input.default_mode,input.default_mode>>|Mode a new window starts in.
@@ -3845,6 +3847,28 @@ Empty derives it from `QTWEBENGINE_REMOTE_DEBUGGING`.
 Type: <<types,String>>
 
 Default: empty
+
+[[icarus.greet]]
+=== icarus.greet
+Whether the icarus bar opens a tab's conversation itself: on the first open it tells you what the page is and what it could do with it.
+
+Type: <<types,Bool>>
+
+Default: +pass:[true]+
+
+[[icarus.mid_turn]]
+=== icarus.mid_turn
+What a submit does while the tab's icarus turn is still running, as the icarus web UI's harness modes do.
+`<Ctrl+s>` in the bar switches it for the window; `<Ctrl+x>` drops the newest queued prompt.
+
+Type: <<types,String>>
+
+Valid values:
+
+ * +steer+: A submit while a turn runs interrupts it (its partial answer stays, marked steered) and runs right away.
+ * +queue+: A submit while a turn runs waits behind it and runs when it ends, in order.
+
+Default: +pass:[steer]+
 
 [[icarus.model]]
 === icarus.model

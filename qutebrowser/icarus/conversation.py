@@ -29,9 +29,30 @@ _SUGGESTION = re.compile(r'^\s*(?:→|->)\s+(.+?)\s*$')
 IDLE, WORKING, RESPONDING, TOOL = '', 'working', 'responding', 'tool'
 
 
+_STEERING = re.compile(r'^\s*#\s*Steering\s*$')
+
+
 def split_suggestions(text: str) -> tuple[str, list[str]]:
-    """A reply's body and the ``→`` suggestion lines it ends with."""
+    """A reply's body and the ``→`` suggestion lines it ends with.
+
+    The suggestions may sit just above a trailing ``# Steering`` block (the
+    harness's reply format puts that last); the block stays in the body.
+    """
     lines = text.rstrip().split('\n')
+    steering: list[str] = []
+    for i in range(len(lines) - 1, -1, -1):
+        if _STEERING.match(lines[i]):
+            steering, lines = lines[i:], lines[:i]
+            while lines and not lines[-1].strip():
+                lines.pop()
+            break
+    body, suggestions = _split_tail(lines)
+    if steering:
+        body = (body + '\n\n' if body else '') + '\n'.join(steering)
+    return body, suggestions
+
+
+def _split_tail(lines: list[str]) -> tuple[str, list[str]]:
     suggestions: list[str] = []
     while lines:
         m = _SUGGESTION.match(lines[-1])

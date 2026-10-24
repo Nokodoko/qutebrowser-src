@@ -6,7 +6,7 @@
 
 import pytest
 
-from qutebrowser.icarus import client, conversation
+from qutebrowser.icarus import client, conversation, history, render, transcript, working
 from qutebrowser.mainwindow import icarusbar
 
 
@@ -258,6 +258,8 @@ def test_conversation_thinking_tools_and_phases(conv):
     ('a\n\n→ one\n-> two', 'a', ['one', 'two']),
     ('→ only', '', ['only']),
     ('a → inline\nb', 'a → inline\nb', []),
+    ('a\n\n→ one\n\n# Steering\n- Did: x', 'a\n\n# Steering\n- Did: x', ['one']),
+    ('a\n# Steering\n- Did: x', 'a\n\n# Steering\n- Did: x', []),
 ])
 def test_split_suggestions(text, body, suggestions):
     assert conversation.split_suggestions(text) == (body, suggestions)
@@ -300,15 +302,89 @@ def test_conversation_queue(conv):
     assert c.unqueue() == ''
 
 
-def test_render_transcript():
-    entries = [
-        conversation.Entry('you', 'click sign in'),
+def test_transcript_html(conv):
+    c, fake = conv
+    c.entries = [
+        conversation.Entry('you', 'click <sign in>'),
         conversation.Entry('step', 'plan: 1) click Sign in\n\nstep 1 click #login'),
-        conversation.Entry('icarus', 'Done.'),
+        conversation.Entry('icarus', '<summary>\n  Done.\n</summary>\n\n→ next'),
         conversation.Entry('error', 'turn failed'),
     ]
-    assert icarusbar.render(entries) == (
-        '**▸ you**\n\nclick sign in\n\n'
-        '> plan: 1) click Sign in  \n> step 1 click #login  \n\n'
-        '**▸ icarus**\n\nDone.\n\n'
-        '> **error:** turn failed')
+    c.suggestions = ['next', 'other']
+    c.queue = ['later']
+    out = transcript.transcript_html(c, selected=1)
+    assert 'you ❯' in out and 'click &lt;sign in&gt;' in out
+    assert '│ plan: 1) click Sign in' in out and '│ step 1 click #login' in out
+    assert '&lt;summary&gt;' in out and 'Done.' in out
+    assert '→ next' in out  # as a pick, not in the reply body
+    assert out.count('→ next') == 1
+    assert f'background-color:{render.AMBER}' in out  # 'other' is selected
+    assert 'queued · later' in out
+    assert 'turn failed' in out
+
+
+def test_transcript_thinking_folds_after_the_turn(conv):
+    c, fake = conv
+    c.submit('q')
+    fake.turns[0].on_event({'kind': 'reasoning', 'text': 'step one\nstep two'})
+    live = transcript.transcript_html(c)
+    assert 'step two' in live and 'thought' not in live
+    fake.turns[0].finished.emit()
+    folded = transcript.transcript_html(c)
+    assert '▸ thought · 4 words' in folded and 'step two' not in folded
+    assert 'step two' in transcript.transcript_html(c, expand_thinking=True)
+
+
+def test_tools_html():
+    calls = [conversation.ToolCall(f'c{i}', f'tool{i}', '{"a": 1}', 'out', 'done', 5)
+             for i in range(5)]
+    calls.append(conversation.ToolCall('c9', 'bash', '{}', 'boom', 'error'))
+    out = transcript.tools_html(calls)
+    assert out.count('◂') == 5 and '✗' in out
+    assert '5 ms' in out
+    # Only the newest TOOLS_OPEN entries show payloads.
+    assert out.count('<pre') == 2 * transcript.TOOLS_OPEN
+    assert 'No tool calls yet' in transcript.tools_html([])
+
+
+def test_history_ring():
+    ring = history.HistoryRing()
+    ring.add('open the docs')
+    ring.add('open the docs')  # consecutive duplicate dropped
+    ring.add('  ')
+    ring.add('open the pricing page')
+    assert len(ring) == 2
+    assert ring.suggest('open the') == ' pricing page'  # newest match wins
+    assert ring.suggest('open the docs') == ''  # strict prefix only
+    assert ring.suggest('') == ''
+    ring.seed(['older one', 'open the d'])
+    assert ring.recent() == ['open the pricing page', 'open the docs',
+                             'open the d', 'older one']
+    assert ring.seeded
+
+
+@pytest.mark.parametrize('text, names', [
+    ('/', None),
+    ('/mo', ['/model']),
+    ('/su', ['/summarise']),
+    ('/model x', []),
+    ('hello', []),
+])
+def test_popup_items(text, names):
+    skills = [('/summarise', 'sum it')]
+    got = [name for name, _desc in icarusbar.popup_items(text, skills)]
+    if names is None:
+        assert len(got) == len(icarusbar.BAR_COMMANDS) + 1
+    else:
+        assert got == names
+
+
+@pytest.mark.parametrize('phase, tool, expected', [
+    (conversation.WORKING, '', 'working…'),
+    (conversation.RESPONDING, '', 'responding…'),
+    (conversation.TOOL, 'browser_do', 'running browser_do…'),
+    (conversation.IDLE, '', ''),
+])
+def test_working_label(phase, tool, expected):
+    assert working.label(phase, tool) == expected
+    assert working.elapsed(75) == '1m15s' and working.elapsed(9) == '9s'

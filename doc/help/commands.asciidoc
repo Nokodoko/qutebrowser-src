@@ -84,6 +84,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<icarus-close,icarus-close>>|Close the icarus bar.
 |<<icarus-model,icarus-model>>|Pick the model the current tab's icarus conversation runs on.
 |<<icarus-new,icarus-new>>|Start a new icarus conversation for the current tab.
+|<<icarus-tools,icarus-tools>>|Show or hide the icarus bar's tools pane (every tool call, live).
 |<<insert-text,insert-text>>|Insert text at cursor position.
 |<<jseval,jseval>>|Evaluate a JavaScript string.
 |<<jump-mark,jump-mark>>|Jump to the mark named by `key`.
@@ -861,6 +862,10 @@ Pick the model the current tab's icarus conversation runs on.
 [[icarus-new]]
 === icarus-new
 Start a new icarus conversation for the current tab.
+
+[[icarus-tools]]
+=== icarus-tools
+Show or hide the icarus bar's tools pane (every tool call, live).
 
 [[insert-text]]
 === insert-text

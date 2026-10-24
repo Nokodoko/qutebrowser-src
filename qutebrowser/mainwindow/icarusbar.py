@@ -2,30 +2,40 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The icarus bar: a chat with icarus over the current tab.
+"""The icarus bar: icarus on the page in the current tab.
 
 A tray that comes up from the bottom like the tab picker (the completion
 overlay: full width, above the statusbar, completion.height tall), so the
-page it drives stays in view above it. Inside are the cards of
-ChatGPT.nvim's chat: a transcript card titled ``ICARUS · model``, an input
-card below it whose title chip is the input's vi mode, and with
-``<Ctrl+o>`` a models card on the right to swap the chat model between the
-local fleet and cloud. Painted with the glass chrome of the other menus
-(mainwindow/glass.py).
+page it drives stays in view above it. It carries the icarus web UI's chat
+over the page: a transcript card titled ``ICARUS · model`` (replies rendered
+as the web UI renders them, the model's thinking, laya's steps, the web UI's
+working strip while a turn runs), an input card whose title chip is the
+input's vi mode, and on the right either the models card (``<Ctrl+o>``) or
+the tools pane (``<Ctrl+t>``, every tool call's arguments and result live).
+Painted with the glass chrome of the other menus (mainwindow/glass.py).
 
-Each tab carries its own conversation (``tab.data.icarus``); icarus serve
-keeps the matching session and drives the tab itself (laya) when a submit
-asks for something to be done on the page. The bar runs in icarus mode,
-which passes keys through to it; its own keys follow the nvim chat:
+Each tab carries its own conversation (``tab.data.icarus``). icarus serve
+keeps the matching session on the site's own page project, drives the tab
+(the model's browser tools, multi-step actions through laya) and, on the
+first open, introduces the page (icarus.greet). Keys:
 
-    <Return>        send (INSERT), <Shift+Return> a new line
-    <Escape>        INSERT -> NORMAL; in NORMAL, close (q too)
-    NORMAL          vim on the input (icarus/vim.py): motions, d/c/y, p,
-                    u and <Ctrl+r>, i/a/I/A/o/O; a j/k/gg/G the input
-                    cannot take scrolls the transcript
+    <Return>        send; while a turn runs it steers or queues
+                    (icarus.mid_turn, <Ctrl+s> switches, <Ctrl+x> unqueues)
+    <Shift+Return>  a new line
+    <Escape>        close the / popup, else INSERT -> NORMAL; in NORMAL,
+                    close (q too)
+    NORMAL          vim on the input (icarus/vim.py)
+    <Tab>           accept the / popup's pick, else cycle the reply's
+                    → suggestions into the input
+    → <End> <Ctrl+f>  accept the history ghost text at the end of the input
+    <Up>/<Down>     recall earlier prompts into an empty input
+    /               skills and the bar's own commands (/new /model /tools
+                    /steer /queue /thinking)
+    <Ctrl+g>        edit the input in the external editor (editor.command)
     <Ctrl+d>/<Ctrl+u>  scroll the transcript
-    <Ctrl+c>        stop a running turn, else close
-    <Ctrl+o>        the models card; <Tab> moves between the cards
+    <Ctrl+c>        stop a running turn and its queue, else close
+    <Ctrl+o>/<Ctrl+t>  the models card / the tools pane
+    <Alt+t>         unfold (or fold) the thinking
     <Ctrl+n>        new session for this tab
     <Ctrl+y>        yank the last answer
 """
@@ -34,7 +44,7 @@ import html
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
                                  pyqtSignal, pyqtSlot)
-from qutebrowser.qt.gui import QKeyEvent, QPainter, QTextCursor
+from qutebrowser.qt.gui import QColor, QKeyEvent, QPainter, QTextCursor
 from qutebrowser.qt.widgets import (QLineEdit, QListWidget, QListWidgetItem,
                                     QPlainTextEdit, QSizePolicy, QTextBrowser,
                                     QWidget)
@@ -42,8 +52,8 @@ from qutebrowser.qt.widgets import (QLineEdit, QListWidget, QListWidgetItem,
 from qutebrowser.api import cmdutils
 from qutebrowser.config import config, stylesheet
 from qutebrowser.icarus import client as clientmod
-from qutebrowser.icarus import conversation
-from qutebrowser.icarus import vim
+from qutebrowser.icarus import conversation, history, render, transcript, vim
+from qutebrowser.icarus import working
 from qutebrowser.keyinput import modeman
 from qutebrowser.mainwindow import glass
 from qutebrowser.utils import message, objreg, usertypes, utils
@@ -65,7 +75,21 @@ WORDMARK = """\
  ██  ██████ ██   ██ ██   ██ ██████ ██████"""
 WING = '#d9a520'
 
+#: The bar's own / commands (handled here, never sent).
+BAR_COMMANDS = [
+    ('/new', 'start a new conversation for this tab'),
+    ('/model', '<provider/model> switch this tab\'s model'),
+    ('/tools', 'show or hide the tools pane'),
+    ('/steer', 'a submit while a turn runs steers it'),
+    ('/queue', 'a submit while a turn runs waits behind it'),
+    ('/thinking', 'unfold or fold the model\'s thinking'),
+]
+#: Rows the / popup shows.
+POPUP_ROWS = 8
+
 _client: clientmod.Client | None = None
+_history = history.HistoryRing()
+_skills: list[tuple[str, str]] = []
 
 
 def client() -> clientmod.Client:
@@ -85,20 +109,13 @@ def tab_target(tab) -> str:
         return ''
 
 
-def render(entries: list[conversation.Entry]) -> str:
-    """The transcript as markdown, ChatGPT.nvim's ``▸ you`` / ``▸ icarus``."""
-    parts = []
-    for entry in entries:
-        if entry.kind == 'you':
-            parts.append(f'**▸ you**\n\n{entry.text}')
-        elif entry.kind == 'icarus':
-            parts.append(f'**▸ icarus**\n\n{entry.text}')
-        elif entry.kind == 'step':
-            lines = [line for line in entry.text.splitlines() if line.strip()]
-            parts.append('\n'.join(f'> {line}  ' for line in lines))
-        else:
-            parts.append(f'> **error:** {entry.text}')
-    return '\n\n'.join(parts)
+def popup_items(text: str, skills: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The / popup's rows for the input text (only while it is one token)."""
+    if not text.startswith('/') or any(c.isspace() for c in text):
+        return []
+    needle = text.lower()
+    return [(name, desc) for name, desc in BAR_COMMANDS + skills
+            if name.lower().startswith(needle)]
 
 
 #: Keys NORMAL leaves to the editor (they only move the cursor).
@@ -120,6 +137,27 @@ def _from_u16(text: str, pos: int) -> int:
             return i
         units += 2 if ord(ch) > 0xFFFF else 1
     return len(text)
+
+
+class _Input(QPlainTextEdit):
+
+    """The input, drawing the history ghost text after the cursor."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.ghost = ''
+
+    def paintEvent(self, e) -> None:
+        super().paintEvent(e)
+        if not self.ghost or not self.textCursor().atEnd():
+            return
+        rect = self.cursorRect()
+        painter = QPainter(self.viewport())
+        painter.setPen(QColor(render.DIM))
+        painter.setFont(self.font())
+        painter.drawText(rect.right() + 2, rect.top() + self.fontMetrics().ascent(),
+                         self.ghost.split('\n')[0])
+        painter.end()
 
 
 class IcarusBar(QWidget):
@@ -150,6 +188,10 @@ class IcarusBar(QWidget):
             color: {{ qcolor_to_qsscolor(conf.colors.glass.selected.fg) }};
             background: {{ qcolor_to_qsscolor(conf.colors.glass.selected.bg) }};
         }
+        QListWidget#popup {
+            background: {{ qcolor_to_qsscolor(conf.colors.glass.bg) }};
+            border-radius: 8px;
+        }
         QScrollBar { width: 0px; height: 0px; }
     """
 
@@ -165,7 +207,16 @@ class IcarusBar(QWidget):
         self._tab = None
         self._mode = 'INSERT'
         self._vim = vim.Normal()
-        self._models_open = False
+        #: The right-hand card: None, 'models' or 'tools'.
+        self._side: str | None = None
+        self._mid_turn = config.val.icarus.mid_turn
+        self._expand_thinking = False
+        #: The suggestion Tab last put into the input (-1: none).
+        self._pick = -1
+        #: Where ↑/↓ recall is in the history (-1: not recalling).
+        self._recall = -1
+        self._recalling = False
+        self._editor: QObject | None = None
         self._frost = glass.Frost(self)
 
         self._transcript = QTextBrowser(self)
@@ -173,10 +224,20 @@ class IcarusBar(QWidget):
         self._transcript.setOpenLinks(False)
         self._transcript.anchorClicked.connect(self._on_link)
         self._transcript.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._strip = working.WorkingStrip(self)
 
-        self._input = QPlainTextEdit(self)
-        self._input.setPlaceholderText('Ask icarus... (Enter to send)')
+        self._input = _Input(self)
+        self._input.setPlaceholderText('Ask icarus about this page, or tell it '
+                                       'what to do here... (Enter to send)')
         self._input.installEventFilter(self)
+        self._input.textChanged.connect(self._on_text_changed)
+        self._input.cursorPositionChanged.connect(self._update_ghost)
+
+        self._popup = QListWidget(self)
+        self._popup.setObjectName('popup')
+        self._popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._popup.itemActivated.connect(lambda _item: self._accept_popup())
+        self._popup.hide()
 
         self._filter = QLineEdit(self)
         self._filter.setPlaceholderText('filter models')
@@ -187,6 +248,10 @@ class IcarusBar(QWidget):
         self._models.itemActivated.connect(self._pick_model)
         self._filter.hide()
         self._models.hide()
+
+        self._tools = QTextBrowser(self)
+        self._tools.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._tools.hide()
 
         stylesheet.set_register(self)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -219,6 +284,9 @@ class IcarusBar(QWidget):
                 tab.data.icarus_saved = None
         self._attach(tab, conv)
         client().fetch_models(lambda _models: self._on_models())
+        if not _history.seeded:
+            client().fetch_history(_history.seed)
+        client().fetch_skills(self._on_skills)
         self.show()
         self._reposition()
         self.raise_()
@@ -226,6 +294,8 @@ class IcarusBar(QWidget):
         self._set_mode('INSERT')
         modeman.enter(self._win_id, usertypes.KeyMode.icarus, 'icarus bar')
         self._input.setFocus()
+        if config.val.icarus.greet and not conv.greeted and not conv.entries:
+            conv.greet(url=tab.url().toDisplayString(), title=tab.title())
 
     def close_bar(self) -> None:
         if not self.isVisible():
@@ -240,6 +310,7 @@ class IcarusBar(QWidget):
         if self._conv is not None:
             self._conv.changed.disconnect(self._refresh)
         self._tab, self._conv = tab, conv
+        self._pick = -1
         conv.changed.connect(self._refresh)
         self._refresh()
 
@@ -248,6 +319,10 @@ class IcarusBar(QWidget):
         if mode == usertypes.KeyMode.icarus and self.isVisible():
             self.hide()
             self._frost.clear()
+
+    def _on_skills(self, skills: list[tuple[str, str]]) -> None:
+        global _skills
+        _skills = skills
 
     # ---- the model -------------------------------------------------------
 
@@ -264,7 +339,7 @@ class IcarusBar(QWidget):
         if conv is not None and conv.model is None and not conv.entries:
             self._seed_model(conv)
             self._refresh()
-        if self._models_open:
+        if self._side == 'models':
             self._fill_models()
 
     def _fill_models(self) -> None:
@@ -291,19 +366,26 @@ class IcarusBar(QWidget):
             return
         self._conv.model = item.data(Qt.ItemDataRole.UserRole)
         message.info(f"icarus: this tab now talks to {self._conv.model}")
-        self._toggle_models(False)
+        self._toggle_side('models', False)
         self._refresh()
 
-    def _toggle_models(self, show: bool | None = None) -> None:
-        self._models_open = not self._models_open if show is None else show
-        self._filter.setVisible(self._models_open)
-        self._models.setVisible(self._models_open)
-        if self._models_open:
+    def _toggle_side(self, side: str, show: bool | None = None) -> None:
+        """Open or close the right-hand card (models or tools)."""
+        if show is None:
+            show = self._side != side
+        self._side = side if show else (None if self._side == side else self._side)
+        models, tools = self._side == 'models', self._side == 'tools'
+        self._filter.setVisible(models)
+        self._models.setVisible(models)
+        self._tools.setVisible(tools)
+        if models:
             self._filter.clear()
             self._fill_models()
             self._filter.setFocus()
         else:
             self._input.setFocus()
+        if tools:
+            self._refresh_tools()
         self._layout()
         self.update()
 
@@ -319,7 +401,10 @@ class IcarusBar(QWidget):
         self._conv.model = model
         self._refresh()
 
-    # ---- the transcript --------------------------------------------------
+    # ---- the transcript and the tools pane --------------------------------
+
+    def _indent(self) -> int:
+        return 2 * self.fontMetrics().horizontalAdvance('M')
 
     def _refresh(self) -> None:
         conv = self._conv
@@ -327,39 +412,45 @@ class IcarusBar(QWidget):
             return
         bar = self._transcript.verticalScrollBar()
         at_end = bar.value() >= bar.maximum() - 4
-        if conv.entries:
-            self._transcript.setMarkdown(render(conv.entries))
+        if conv.entries or conv.busy:
+            self._transcript.setHtml(transcript.transcript_html(
+                conv, selected=self._pick, expand_thinking=self._expand_thinking,
+                indent=self._indent()))
         else:
             self._transcript.setHtml(self._welcome())
         if at_end:
             bar.setValue(bar.maximum())
+        was_busy = self._strip.isVisible()
+        self._strip.follow(conv if self.isVisible() else None)
+        if was_busy != self._strip.isVisible():
+            self._layout()
+        if self._side == 'tools':
+            self._refresh_tools()
         self.update()
+
+    def _refresh_tools(self) -> None:
+        conv = self._conv
+        bar = self._tools.verticalScrollBar()
+        at_end = bar.value() >= bar.maximum() - 4
+        self._tools.setHtml(transcript.tools_html(conv.tools if conv else []))
+        if at_end:
+            bar.setValue(bar.maximum())
 
     def _welcome(self) -> str:
         model = self._conv.model if self._conv else None
-        tag = html.escape(f'local inference · {model}' if model else 'icarus')
+        tag = html.escape(f'{model}' if model else 'icarus')
         return (f'<pre style="color:{WING}">{html.escape(BANNER)}</pre>'
                 f'<pre><b>{html.escape(WORDMARK)}</b></pre>'
-                f'<p style="opacity:0.6">&nbsp;&nbsp;{tag}</p>'
-                '<p style="opacity:0.6">&nbsp;&nbsp;? search · ! do it on '
-                'this page · = just answer · &lt;Ctrl+o&gt; models</p>')
+                f'<p style="opacity:0.6">&nbsp;&nbsp;{tag} · drives this tab</p>'
+                '<p style="opacity:0.6">&nbsp;&nbsp;/ skills &amp; commands · '
+                'Tab suggestions · &lt;Ctrl+t&gt; tools · &lt;Ctrl+o&gt; models · '
+                '&lt;Ctrl+g&gt; editor</p>')
 
     def _on_link(self, url: QUrl) -> None:
         self._open_url(url.toString())
 
     def _open_url(self, url: str) -> None:
         self._tabbed_browser().tabopen(QUrl(url), background=False)
-
-    def _submit(self) -> None:
-        conv, tab = self._conv, self._tab
-        if conv is None or tab is None:
-            return
-        if conv.busy:
-            message.warning("icarus is still answering (<Ctrl+c> stops it)")
-            return
-        if conv.submit(self._input.toPlainText(), url=tab.url().toDisplayString(),
-                       title=tab.title()):
-            self._input.clear()
 
     def _scroll(self, pages: float) -> None:
         bar = self._transcript.verticalScrollBar()
@@ -378,10 +469,155 @@ class IcarusBar(QWidget):
             self._conv.reset()
 
     def stop(self) -> None:
-        if self._conv is not None and self._conv.busy:
-            self._conv.stop()
+        if self._conv is not None and (self._conv.busy or self._conv.queue):
+            self._conv.cancel()
         else:
             self.close_bar()
+
+    # ---- submitting ------------------------------------------------------
+
+    def _bar_command(self, text: str) -> bool:
+        """Run one of BAR_COMMANDS; False when text is not one."""
+        name, _, arg = text.strip().partition(' ')
+        arg = arg.strip()
+        if name == '/new':
+            self.new_session()
+        elif name == '/model':
+            if arg:
+                try:
+                    self.set_model(arg)
+                except cmdutils.CommandError as e:
+                    message.error(str(e))
+            else:
+                self._toggle_side('models', True)
+        elif name == '/tools':
+            self._toggle_side('tools')
+        elif name in ('/steer', '/queue'):
+            self._mid_turn = name[1:]
+            message.info(f"icarus: a submit while a turn runs now {name[1:]}s")
+        elif name == '/thinking':
+            self._expand_thinking = not self._expand_thinking
+            self._refresh()
+        else:
+            return False
+        return True
+
+    def _submit(self) -> None:
+        conv, tab = self._conv, self._tab
+        if conv is None or tab is None:
+            return
+        text = self._input.toPlainText()
+        if not text.strip():
+            return
+        if self._bar_command(text):
+            self._input.clear()
+            return
+        if conv.submit(text, url=tab.url().toDisplayString(), title=tab.title(),
+                       mid_turn=self._mid_turn):
+            _history.add(text)
+            self._recall = -1
+            self._pick = -1
+            self._input.clear()
+
+    # ---- INSERT helpers: ghost, recall, suggestions, popup, editor -------
+
+    def _on_text_changed(self) -> None:
+        if not self._recalling:
+            self._recall = -1
+        self._update_popup()
+        self._update_ghost()
+
+    def _update_ghost(self) -> None:
+        text = self._input.toPlainText()
+        at_end = self._input.textCursor().atEnd()
+        ghost = (_history.suggest(text) if self._mode == 'INSERT' and at_end
+                 and not self._popup.isVisible() else '')
+        if ghost != self._input.ghost:
+            self._input.ghost = ghost
+            vp = self._input.viewport()
+            assert vp is not None
+            vp.update()
+
+    def _accept_ghost(self) -> bool:
+        if not self._input.ghost or not self._input.textCursor().atEnd():
+            return False
+        self._input.insertPlainText(self._input.ghost)
+        return True
+
+    def _recall_step(self, step: int) -> bool:
+        """↑/↓ through earlier prompts while the input is empty or recalled."""
+        if self._input.toPlainText() and self._recall < 0:
+            return False
+        recent = _history.recent()
+        index = self._recall + step
+        if index < -1 or index >= len(recent):
+            return True
+        self._recall = index
+        self._recalling = True
+        self._input.setPlainText(recent[index] if index >= 0 else '')
+        self._recalling = False
+        self._input.moveCursor(QTextCursor.MoveOperation.End)
+        return True
+
+    def _cycle_suggestion(self) -> bool:
+        conv = self._conv
+        if conv is None or not conv.suggestions or conv.busy:
+            return False
+        self._pick = (self._pick + 1) % len(conv.suggestions)
+        self._input.setPlainText(conv.suggestions[self._pick])
+        self._input.moveCursor(QTextCursor.MoveOperation.End)
+        self._refresh()
+        return True
+
+    def _update_popup(self) -> None:
+        items = popup_items(self._input.toPlainText(), _skills) if self._mode == 'INSERT' else []
+        self._popup.clear()
+        for name, desc in items:
+            item = QListWidgetItem(f'{name}   {desc}')
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            self._popup.addItem(item)
+        if items:
+            self._popup.setCurrentRow(0)
+        self._popup.setVisible(bool(items))
+        self._layout()
+
+    def _accept_popup(self) -> None:
+        item = self._popup.currentItem()
+        if item is None:
+            return
+        self._input.setPlainText(item.data(Qt.ItemDataRole.UserRole) + ' ')
+        self._input.moveCursor(QTextCursor.MoveOperation.End)
+        self._popup.hide()
+
+    def _popup_key(self, event: QKeyEvent) -> bool:
+        key = event.key()
+        ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        row, count = self._popup.currentRow(), self._popup.count()
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._accept_popup()
+        elif key == Qt.Key.Key_Escape:
+            self._popup.hide()
+        elif key == Qt.Key.Key_Down or (ctrl and key == Qt.Key.Key_N):
+            self._popup.setCurrentRow((row + 1) % count)
+        elif key == Qt.Key.Key_Up or (ctrl and key == Qt.Key.Key_P):
+            self._popup.setCurrentRow((row - 1) % count)
+        else:
+            return False
+        return True
+
+    def open_editor(self) -> None:
+        """Edit the input in the external editor (editor.command)."""
+        # Imported here: misc.editor -> guiprocess -> api.apitypes ->
+        # browsertab is a cycle while mainwindow is being imported.
+        from qutebrowser.misc import editor  # pylint: disable=import-outside-toplevel
+        self._editor = editor.ExternalEditor(parent=self)
+        self._editor.file_updated.connect(self._on_editor_text)
+        self._editor.edit(self._input.toPlainText())
+
+    def _on_editor_text(self, text: str) -> None:
+        self._input.setPlainText(text.rstrip('\n'))
+        self._input.moveCursor(QTextCursor.MoveOperation.End)
+        self._input.setFocus()
 
     # ---- keys ------------------------------------------------------------
 
@@ -394,10 +630,12 @@ class IcarusBar(QWidget):
         if mode == 'NORMAL' and self._mode == 'INSERT':
             text, pos = self._buffer()
             self._move(vim.escape_pos(text, pos))
+            self._popup.hide()
         self._mode = mode
         self._vim.reset()
         width = self._input.fontMetrics().horizontalAdvance('M')
         self._input.setCursorWidth(width if mode == 'NORMAL' else 2)
+        self._update_ghost()
         self.update()
 
     # The buffer and cursor in str indices: Qt counts UTF-16 code units,
@@ -450,12 +688,16 @@ class IcarusBar(QWidget):
         return False
 
     def _common_key(self, event: QKeyEvent) -> bool:
-        ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        mods = event.modifiers()
+        ctrl = mods == Qt.KeyboardModifier.ControlModifier
+        alt = mods == Qt.KeyboardModifier.AltModifier
         key = event.key()
         if ctrl and key == Qt.Key.Key_C:
             self.stop()
         elif ctrl and key == Qt.Key.Key_O:
-            self._toggle_models()
+            self._toggle_side('models')
+        elif ctrl and key == Qt.Key.Key_T:
+            self._toggle_side('tools')
         elif ctrl and key == Qt.Key.Key_N:
             self.new_session()
         elif ctrl and key == Qt.Key.Key_Y:
@@ -464,7 +706,19 @@ class IcarusBar(QWidget):
             self._scroll(0.5)
         elif ctrl and key == Qt.Key.Key_U:
             self._scroll(-0.5)
-        elif key == Qt.Key.Key_Tab and self._models_open:
+        elif ctrl and key == Qt.Key.Key_G:
+            self.open_editor()
+        elif ctrl and key == Qt.Key.Key_S:
+            self._mid_turn = 'queue' if self._mid_turn == 'steer' else 'steer'
+            self.update()
+        elif ctrl and key == Qt.Key.Key_X:
+            dropped = self._conv.unqueue() if self._conv else ''
+            message.info(f"icarus: unqueued {dropped!r}" if dropped
+                         else "icarus: nothing queued")
+        elif alt and key == Qt.Key.Key_T:
+            self._expand_thinking = not self._expand_thinking
+            self._refresh()
+        elif key == Qt.Key.Key_Tab and self._side == 'models':
             (self._input if self._filter.hasFocus() else self._filter).setFocus()
             self.update()
         else:
@@ -472,10 +726,14 @@ class IcarusBar(QWidget):
         return True
 
     def _input_key(self, event: QKeyEvent) -> bool:
+        if self._mode == 'INSERT' and self._popup.isVisible() and self._popup_key(event):
+            return True
         if self._common_key(event):
             return True
         key = event.key()
-        shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        mods = event.modifiers()
+        shift = mods & Qt.KeyboardModifier.ShiftModifier
+        ctrl = mods == Qt.KeyboardModifier.ControlModifier
         if self._mode == 'INSERT':
             if key == Qt.Key.Key_Escape:
                 self._set_mode('NORMAL')
@@ -483,10 +741,17 @@ class IcarusBar(QWidget):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not shift:
                 self._submit()
                 return True
+            if key == Qt.Key.Key_Tab:
+                return self._cycle_suggestion() or True
+            if key in (Qt.Key.Key_Right, Qt.Key.Key_End) or (ctrl and key == Qt.Key.Key_F):
+                return self._accept_ghost()
+            if key == Qt.Key.Key_Up and self._input.textCursor().blockNumber() == 0:
+                return self._recall_step(1)
+            if key == Qt.Key.Key_Down and self._recall >= 0:
+                return self._recall_step(-1)
             return False
         # NORMAL
         text = event.text()
-        ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
         if key == Qt.Key.Key_Escape:
             if self._vim.pending:
                 self._vim.reset()
@@ -515,7 +780,7 @@ class IcarusBar(QWidget):
         ctrl = event.modifiers() == Qt.KeyboardModifier.ControlModifier
         row = self._models.currentRow()
         if key == Qt.Key.Key_Escape:
-            self._toggle_models(False)
+            self._toggle_side('models', False)
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._pick_model()
         elif key == Qt.Key.Key_Down or (ctrl and key in (Qt.Key.Key_J, Qt.Key.Key_N)):
@@ -546,35 +811,51 @@ class IcarusBar(QWidget):
         self._frost.schedule()
 
     def _areas(self) -> tuple[QRect, QRect, QRect | None]:
-        """The outer areas of the transcript, input and models cards."""
+        """The outer areas of the transcript, input and right-hand cards."""
         rect = self.rect().adjusted(glass.PAD, glass.PAD // 2, -glass.PAD,
                                     -glass.PAD // 2)
         font = self.font()
         line = self.fontMetrics().height()
         input_h = (self.INPUT_LINES * line + 2 * glass.INNER +
                    glass.chip_height(font) + glass.PAD)
-        models = None
-        if self._models_open:
-            width = min(max(rect.width() // 3, 260), rect.width() // 2)
-            models = QRect(rect.right() - width + 1, rect.top(), width,
-                           rect.height())
-            rect.setRight(models.left() - 1)
-        transcript = QRect(rect.left(), rect.top(), rect.width(),
-                           rect.height() - input_h)
-        inp = QRect(rect.left(), transcript.bottom() + 1, rect.width(), input_h)
-        return transcript, inp, models
+        side = None
+        if self._side is not None:
+            width = min(max(rect.width() * 2 // 5, 260), rect.width() // 2)
+            side = QRect(rect.right() - width + 1, rect.top(), width,
+                         rect.height())
+            rect.setRight(side.left() - 1)
+        chat = QRect(rect.left(), rect.top(), rect.width(),
+                     rect.height() - input_h)
+        inp = QRect(rect.left(), chat.bottom() + 1, rect.width(), input_h)
+        return chat, inp, side
 
     def _layout(self) -> None:
-        transcript, inp, models = self._areas()
+        chat, inp, side = self._areas()
         font = self.font()
-        self._transcript.setGeometry(glass.content_rect(transcript, font))
+        line = self.fontMetrics().height()
+        content = glass.content_rect(chat, font)
+        if self._strip.isVisible():
+            strip = QRect(content.left(), content.bottom() - line + 1,
+                          content.width(), line)
+            self._strip.setGeometry(strip)
+            content.setBottom(strip.top() - 4)
+        self._transcript.setGeometry(content)
         self._input.setGeometry(glass.content_rect(inp, font))
-        if models is not None:
-            content = glass.content_rect(models, font)
-            line = self.fontMetrics().height() + 8
-            self._filter.setGeometry(content.left(), content.top(),
-                                     content.width(), line)
-            self._models.setGeometry(content.adjusted(0, line + 6, 0, 0))
+        if self._popup.isVisible():
+            rows = min(self._popup.count(), POPUP_ROWS)
+            height = rows * (line + 6) + 8
+            width = min(content.width(), 60 * self.fontMetrics().horizontalAdvance('M'))
+            self._popup.setGeometry(content.left(), content.bottom() - height + 1,
+                                    width, height)
+            self._popup.raise_()
+        if side is not None:
+            inner = glass.content_rect(side, font)
+            if self._side == 'models':
+                row = line + 8
+                self._filter.setGeometry(inner.left(), inner.top(), inner.width(), row)
+                self._models.setGeometry(inner.adjusted(0, row + 6, 0, 0))
+            else:
+                self._tools.setGeometry(inner)
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -586,8 +867,8 @@ class IcarusBar(QWidget):
         conv = self._conv
         model = str(conv.model) if conv and conv.model else 'default model'
         title = f'ICARUS · {model}'
-        if conv and conv.busy:
-            title += ' · thinking…' if conv.lane != 'browser_act' else ' · laya driving'
+        if conv and conv.busy and conv.lane == 'browser_act':
+            title += ' · laya driving'
         return title
 
     def paintEvent(self, e) -> None:
@@ -595,18 +876,25 @@ class IcarusBar(QWidget):
         colors = glass.Colors.from_config()
         font = self.font()
         glass.paint_panel(painter, self.rect(), colors, self._frost)
-        transcript, inp, models = self._areas()
-        session = self._conv.session[:8] if self._conv and self._conv.session else 'new'
-        glass.paint_card(painter, transcript, font, colors, self._title(),
+        chat, inp, side = self._areas()
+        conv = self._conv
+        session = conv.session[:8] if conv and conv.session else 'new'
+        glass.paint_card(painter, chat, font, colors, self._title(),
                          right=f'session {session}')
         mode = self._mode
         chip = (config.val.colors.icarus.insert.bg if mode == 'INSERT'
                 else config.val.colors.icarus.normal.bg)
+        mid = self._mid_turn
+        if conv and conv.queue:
+            mid += f' · {len(conv.queue)}'
         glass.paint_card(painter, inp, font, colors, mode, center=True,
-                         title_bg=chip)
-        if models is not None:
+                         title_bg=chip, right=mid)
+        if side is not None and self._side == 'models':
             count = f'{self._models.count()} / {len(client().models)}'
-            glass.paint_card(painter, models, font, colors, 'Models', right=count)
+            glass.paint_card(painter, side, font, colors, 'Models', right=count)
+        elif side is not None:
+            calls = len(conv.tools) if conv else 0
+            glass.paint_card(painter, side, font, colors, 'Tools', right=str(calls))
         painter.end()
 
 
@@ -654,6 +942,16 @@ def icarus_new(win_id: int) -> None:
 
 @cmdutils.register()
 @cmdutils.argument('win_id', value=cmdutils.Value.win_id)
+def icarus_tools(win_id: int) -> None:
+    """Show or hide the icarus bar's tools pane (every tool call, live)."""
+    bar = _bar(win_id)
+    if not bar.isVisible():
+        bar.open()
+    bar._toggle_side('tools')  # noqa: SLF001
+
+
+@cmdutils.register()
+@cmdutils.argument('win_id', value=cmdutils.Value.win_id)
 def icarus_model(win_id: int, model: str | None = None) -> None:
     """Pick the model the current tab's icarus conversation runs on.
 
@@ -665,6 +963,6 @@ def icarus_model(win_id: int, model: str | None = None) -> None:
     if not bar.isVisible():
         bar.open()
     if model is None:
-        bar._toggle_models(True)  # noqa: SLF001
+        bar._toggle_side('models', True)  # noqa: SLF001
     else:
         bar.set_model(model)
