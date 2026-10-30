@@ -1,0 +1,86 @@
+# .icarus/evals/justfile — the eval build system for this project.
+#
+# Rules (context_management spec, EVALS):
+#   1. Evals always run through a build system, never a bare script call.
+#   2. Pass/Fail only. Every exit route of every eval prints one log line.
+#   3. `general/` is the always-on suite; `custom/` is the project-specific one,
+#      split along the logical commits the git-agent makes.
+#
+# Add an eval by dropping a `<name>.go` into general/ or custom/ and giving it a
+# recipe of its own below. Go is the default language; a `<name>.sh` is still
+# discovered, for evals that are genuinely shell.
+#
+# Go evals carry `//go:build ignore`, which keeps them out of `go build ./...`
+# and lets two of them share one directory (the spec's flat
+# evals/general/eval_*.go layout — two `package main` files cannot otherwise
+# coexist). `go run <file>.go` compiles and runs them regardless of the tag.
+#
+# Single compile (spec EVALS, eval_2 rule): the binary under test is built ONCE,
+# by the project's own build recipe. No eval here re-runs `go build` or
+# `just build`; the path to the already-built binary arrives through $ICARUS_BIN,
+# and $ICARUS_SESSION_ID likewise arrives through the environment so a failing
+# eval can be correlated with the session that caused it.
+
+# List every recipe.
+default:
+    @just --list
+
+# Run every suite.
+all: general custom
+
+# Run the always-on suite.
+general:
+    @just _suite general
+
+# Run the project-specific suite.
+custom:
+    @just _suite custom
+
+# EVAL general/init_idempotent: a re-run of `icarus init` changes nothing and
+# `--check` exits 1 on drift (spec INIT step 7).
+init_idempotent:
+    @just run init_idempotent
+
+# EVAL general/memory_files_append_only: concurrent writers only ever append to
+# .icarus/memory/*.md, and rotation renames instead of editing (spec RULES).
+memory_files_append_only:
+    @just run memory_files_append_only
+
+# Run a single eval by name, searching general/ then custom/.
+run NAME:
+    #!/usr/bin/env sh
+    set -u
+    for suite in general custom; do
+        if [ -f "$suite/{{NAME}}.go" ]; then
+            exec go run "$suite/{{NAME}}.go"
+        fi
+        if [ -f "$suite/{{NAME}}.sh" ]; then
+            exec sh "$suite/{{NAME}}.sh"
+        fi
+    done
+    echo "FAIL eval={{NAME}} reason=not_found suites=general,custom"
+    exit 1
+
+# Run every eval in SUITE. Fails if any single eval fails.
+_suite SUITE:
+    #!/usr/bin/env sh
+    set -u
+    failed=0
+    found=0
+    for script in "{{SUITE}}"/*.go "{{SUITE}}"/*.sh; do
+        [ -f "$script" ] || continue
+        found=$((found + 1))
+        case "$script" in
+            *.go) go run "$script" || failed=1 ;;
+            *)    sh "$script"     || failed=1 ;;
+        esac
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "PASS suite={{SUITE}} evals=0 reason=empty_suite"
+        exit 0
+    fi
+    if [ "$failed" -ne 0 ]; then
+        echo "FAIL suite={{SUITE}} evals=$found"
+        exit 1
+    fi
+    echo "PASS suite={{SUITE}} evals=$found"

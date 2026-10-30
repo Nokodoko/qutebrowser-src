@@ -1,0 +1,22 @@
+# .icarus/tools.toml — project-local custom tools.
+#
+# Every [[tool]] entry here is registered with the agent for THIS project only.
+# The file ships empty on purpose: an empty manifest declares no tools, which is
+# the correct default for a freshly scaffolded repository.
+#
+# Each call passes arguments to the command two ways: the raw JSON arguments
+# object on stdin, and one $ICARUS_PARAM_<NAME> environment variable per
+# declared parameter (uppercased).
+#
+# Uncomment and edit to declare one:
+#
+# [[tool]]
+# name = "changed_files"
+# description = "List the files changed against the default branch."
+# command = ["git", "diff", "--name-only", "origin/main..."]
+# timeout_seconds = 15
+#
+# [tool.params.filter]
+# type = "string"
+# required = false
+# description = "Optional path prefix to restrict the listing to."
