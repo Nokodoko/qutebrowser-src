@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from qutebrowser.completion.models import (completionmodel, filepathcategory,
                                            listcategory, histcategory,
                                            BaseCategory)
-from qutebrowser.browser import history
+from qutebrowser.browser import downloads, history
 from qutebrowser.utils import log, objreg
 from qutebrowser.config import config
 
@@ -85,4 +85,24 @@ def url(*, info):
         if category in models:
             model.add_category(models[category])
 
+    return model
+
+
+def download_dest(*, info):
+    """A model which suggests filesystem paths for a download destination.
+
+    Unlike `url`, this never suggests URLs: the argument it completes (`:download
+    -d`) is a path on the machine qutebrowser is running on, and it is written
+    out as-is. An empty pattern offers the configured download directory, so that
+    browsing starts where downloads would have gone anyway.
+
+    Used for the `download` command.
+    """
+    model = completionmodel.CompletionModel(column_widths=(100,))
+    model.add_category(
+        filepathcategory.FilePathCategory(
+            name='Filesystem',
+            initial_path=downloads.download_dir,
+        )
+    )
     return model

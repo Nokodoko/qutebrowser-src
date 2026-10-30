@@ -1553,6 +1553,7 @@ class CommandDispatcher:
         message.info("Bookmarks reloaded.")
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
+    @cmdutils.argument('dest', completion=urlmodel.download_dest)
     def download(self, url=None, *, mhtml_=False, dest=None):
         """Download a given URL, or current page if no URL given.
 

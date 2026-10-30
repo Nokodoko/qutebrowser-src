@@ -25,6 +25,7 @@ except ImportError:
     pass
 
 from qutebrowser.misc import objects, guiprocess
+from qutebrowser.browser import downloads
 from qutebrowser.completion import completer
 from qutebrowser.completion.models import (
     configmodel, listcategory, miscmodels, urlmodel, filepathcategory)
@@ -479,6 +480,56 @@ def test_default_filesystem_completion(qtmodeltester, config_stub, info,
     _check_completions(model, {
         "Filesystem": [(str(local_files_path), None, None)]
     })
+
+
+def test_download_dest_completion(qtmodeltester, info, local_files_path,
+                                  monkeypatch):
+    """An empty :download -d pattern offers the download directory itself."""
+    download_dir = str(local_files_path) + os.sep
+    monkeypatch.setattr(downloads, 'download_dir', lambda: download_dir)
+
+    model = urlmodel.download_dest(info=info)
+    model.set_pattern('')
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        "Filesystem": [(download_dir, None, None)]
+    })
+
+
+def test_download_dest_completion_paths(qtmodeltester, info, local_files_path):
+    """A typed prefix completes to real paths on disk."""
+    model = urlmodel.download_dest(info=info)
+    model.set_pattern(str(local_files_path) + os.sep)
+    qtmodeltester.check(model)
+
+    _check_completions(model, {
+        "Filesystem": [
+            (str(local_files_path / 'file1.txt'), None, None),
+            (str(local_files_path / 'file2.txt'), None, None),
+        ]
+    })
+
+
+def test_download_dest_completion_no_history(qtmodeltester, config_stub, info,
+                                             web_history_populated,
+                                             quickmarks, bookmarks,
+                                             local_files_path, monkeypatch):
+    """Unlike :open, :download -d never suggests URLs, even with a history."""
+    monkeypatch.setattr(downloads, 'download_dir', lambda: str(local_files_path))
+    config_stub.val.completion.open_categories = [
+        'searchengines', 'quickmarks', 'bookmarks', 'history', 'filesystem']
+
+    model = urlmodel.download_dest(info=info)
+    model.set_pattern('https')
+    qtmodeltester.check(model)
+
+    # Only the Filesystem category is there, and it has nothing matching a
+    # URL-ish prefix: no history/quickmark/bookmark entries.
+    assert model.rowCount() == 1
+    catidx = model.index(0, 0)
+    assert model.data(catidx) == 'Filesystem'
+    assert model.rowCount(catidx) == 0
 
 
 def test_quickmark_completion(qtmodeltester, quickmarks):

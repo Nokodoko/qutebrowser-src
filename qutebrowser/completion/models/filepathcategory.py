@@ -14,7 +14,7 @@ is harder to achieve via pathlib.
 import glob
 import os
 import os.path
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from qutebrowser.qt.core import QAbstractListModel, QModelIndex, QObject, Qt, QUrl
 
@@ -26,11 +26,20 @@ from qutebrowser.utils import log
 class FilePathCategory(QAbstractListModel, BaseCategory):
     """Represent filesystem paths matching a pattern."""
 
-    def __init__(self, name: str, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        parent: QObject | None = None,
+        initial_path: Callable[[], str] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._paths: list[str] = []
         self.name = name
         self.columns_to_filter = [0]
+        # Called with an empty pattern to offer a starting point (e.g. the
+        # configured download directory) instead of nothing at all. Called
+        # lazily so the model can be created before the value exists.
+        self._initial_path = initial_path
 
     def _contract_user(self, val: str, path: str) -> str:
         """Contract ~/... and ~user/... in results.
@@ -69,7 +78,11 @@ class FilePathCategory(QAbstractListModel, BaseCategory):
             val: The user's partially typed URL/path.
         """
         if not val:
-            self._paths = config.val.completion.favorite_paths or []
+            if self._initial_path is not None:
+                initial = self._initial_path()
+                self._paths = [initial] if initial else []
+            else:
+                self._paths = config.val.completion.favorite_paths or []
         elif val.startswith('file:///'):
             url_path = self._url_to_path(val)
             self._paths = sorted(
