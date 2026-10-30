@@ -1,3 +1,4 @@
+## LOGS
 {"ts":"2026-10-22T03:52:12Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":4,"session_id":"1792530512076576687-ebb9fd63"}
 {"ts":"2026-10-22T12:17:22Z","event_type":"session","harness":"icarus","model":"claude-opus-5-5","turns":0,"session_id":"1792530512076576687-ebb9fd63"}
 {"ts":"2026-10-23T03:48:30Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":0,"session_id":"1792727310820307957-c7487953"}
@@ -31,3 +32,21 @@
 {"ts":"2026-10-27T16:43:18Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":274,"session_id":"1792957057728629852-c4133148"}
 {"ts":"2026-10-27T21:10:59Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":2,"session_id":"1793135078897698569-fd218eb4"}
 {"ts":"2026-10-27T21:25:27Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":0,"session_id":"1793135078897698569-fd218eb4"}
+{"ts":"2026-10-27T21:33:50Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":10,"session_id":"1793136527303533870-80ac9ae8"}
+{"ts":"2026-10-27T21:33:50Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":7,"session_id":"1793136809549696455-cdb077ce"}
+{"ts":"2026-10-27T21:33:50Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":1,"session_id":"1793135078897698569-fd218eb4"}
+{"ts":"2026-10-28T04:23:33Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":0,"session_id":"1793138330626333160-c3d882c3"}
+{"ts":"2026-10-28T04:23:33Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":2,"session_id":"1792957057728629852-c4133148"}
+{"ts":"2026-10-28T04:51:57Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":1,"session_id":"1792957057728629852-c4133148"}
+{"ts":"2026-10-28T14:28:33Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":10,"session_id":"1793194965716514247-9f3ec944"}
+{"ts":"2026-10-28T14:28:33Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":1,"session_id":"1792957057728629852-c4133148"}
+{"ts":"2026-10-28T14:28:33Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":2,"session_id":"1793194575567809342-c1e13b30"}
+{"ts":"2026-10-28T14:28:33Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":19,"session_id":"1793194643881792403-8621fa09"}
+{"ts":"2026-10-28T14:28:33Z","event_type":"session","harness":"icarus","model":"claude-fable-5-1","turns":8,"session_id":"1793138330626333160-c3d882c3"}
+{"ts":"2026-10-28T21:14:54Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":22,"session_id":"1793220990851748410-967dc10a"}
+{"ts":"2026-10-28T21:14:54Z","event_type":"session","harness":"icarus","model":"qwen3.8-flash-next","turns":45,"session_id":"1792957057728629852-c4133148"}
+{"ts":"2026-10-29T03:07:54Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":12,"session_id":"1792957057728629852-c4133148"}
+{"ts":"2026-10-29T03:13:07Z","event_type":"init","root":"/data/icarus/projects/qutebrowser","mode":"brownfield","git":true,"host":"monty","created":["AGENTS.md",".icarus/memory/context.md",".icarus/memory/evals.md",".icarus/memory/events.md",".icarus/memory/graph.md",".icarus/memory/icarus.md",".icarus/memory/lessons.md",".icarus/memory/loops.md",".icarus/memory/ra.md",".icarus/memory/shas.md",".icarus/memory/skills.md",".icarus/memory/tasks.md",".icarus/memory/tools.md",".icarus/evals/justfile",".icarus/evals/general/.gitkeep",".icarus/evals/general/init_idempotent.go",".icarus/evals/general/memory_files_append_only.go",".icarus/evals/custom/.gitkeep",".icarus/loops/.gitkeep",".icarus/tools.toml",".icarus/skills/.gitkeep",".icarus/skills/webhook-setup/skill.md",".icarus/agents/.gitkeep"]}
+{"ts":"2026-10-30T02:47:00Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":2,"session_id":"1793328408997884615-ba4bd2cf"}
+{"ts":"2026-10-30T02:47:07Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":2,"session_id":"1793328397788706043-4d3a5ac3"}
+{"ts":"2026-10-30T02:47:13Z","event_type":"session","harness":"icarus","model":"deepseek-v4.1-flash","turns":2,"session_id":"1793328371106694112-074c0d2b"}
