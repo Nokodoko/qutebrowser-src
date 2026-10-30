@@ -55,3 +55,10 @@ TODO
 /misc/nsis/include
 /misc/nsis/plugins
 /wheels
+
+# icarus init: runtime memory artefacts (.icarus/memory/tasks.md and the other documents stay tracked)
+.icarus/memory/events.md
+.icarus/memory/logs.md
+.icarus/memory/loops.json
+.icarus/memory/*.1
+.icarus/memory/*.lock
