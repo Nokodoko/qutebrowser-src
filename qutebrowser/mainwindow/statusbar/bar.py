@@ -140,6 +140,20 @@ def _generate_stylesheet():
         qss += _segment_qss(
             'QWidget#StatusBar[color_flags~="%s"]' % flag,  # noqa: S001
             option)
+    # Two IDs beat the per-flag rules above (one ID, one attribute, two
+    # types), so the mode label keeps this override in every flagged mode. The
+    # attribute selector is the always-set color_flags property (a ~= match on
+    # one of its values); the flag itself is irrelevant, as this applies in
+    # every mode.
+    qss += """
+        {% if conf.statusbar.segments and conf.colors.statusbar.segments.mode.bg %}
+        QWidget#StatusBar QLabel#ModeText,
+        QWidget#StatusBar[color_flags~="private"] QLabel#ModeText {
+            qproperty-segmentBg: {{ conf.colors.statusbar.segments.mode.bg }};
+            {% if conf.colors.statusbar.segments.mode.fg %}color: {{ conf.colors.statusbar.segments.mode.fg }};{% endif %}
+        }
+        {% endif %}
+    """
     return qss
 
 
@@ -207,6 +221,8 @@ class StatusBar(QWidget):
                         window=win_id)
 
         self.txt = textbase.TextBase()
+        # Selected by name in the stylesheet (colors.statusbar.segments.mode.*)
+        self.txt.setObjectName('ModeText')
         self._stack.addWidget(self.txt)
 
         self.cmd.show_cmd.connect(self._show_cmd_widget)

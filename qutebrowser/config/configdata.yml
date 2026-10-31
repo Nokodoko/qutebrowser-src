@@ -3500,6 +3500,26 @@ colors.statusbar.segments.fg:
     Foreground color of the command line text when `statusbar.segments` is
     enabled.
 
+colors.statusbar.segments.mode.bg:
+  type:
+    name: QssColor
+    none_ok: true
+  default: null
+  desc: >-
+    Background color of the MODE segment (the NORMAL / ENGAGE / TILE label)
+    when `statusbar.segments` is enabled, in every mode. Null means the segment
+    takes the current mode's own color like every other widget.
+
+colors.statusbar.segments.mode.fg:
+  type:
+    name: QssColor
+    none_ok: true
+  default: null
+  desc: >-
+    Foreground color of the mode segment when
+    `colors.statusbar.segments.mode.bg` is set. Null means the mode's own
+    foreground.
+
 colors.tabs.bar.bg:
   default: '#555555'
   type: QssColor
