@@ -17,10 +17,12 @@ from qutebrowser.qt.webenginecore import (
     QWebEngineHistory,
 )
 
+from qutebrowser.api import cmdutils
 from qutebrowser.browser import shared
 from qutebrowser.browser.webengine import webenginesettings, certificateerror
 from qutebrowser.config import config
-from qutebrowser.utils import log, debug, usertypes, qtutils
+from qutebrowser.icarus import pagecontext
+from qutebrowser.utils import log, debug, message, objreg, usertypes, qtutils
 
 
 _QB_FILESELECTION_MODES = {
@@ -141,11 +143,49 @@ class WebEngineView(QWebEngineView):
         return tab._widget  # pylint: disable=protected-access
 
     def contextMenuEvent(self, ev):
-        """Prevent context menus when rocker gestures are enabled."""
+        """Add ``icarus`` to the menu; none at all with rocker gestures.
+
+        On selected text or a link, ``icarus`` opens the icarus bar with that
+        as context for the next prompt (icarus/pagecontext.py).
+        """
         if config.val.input.mouse.rocker_gestures:
             ev.ignore()
             return
-        super().contextMenuEvent(ev)
+        if not machinery.IS_QT6:
+            super().contextMenuEvent(ev)
+            return
+        menu = self.createStandardContextMenu()
+        if menu is None:
+            return
+        request = self.lastContextMenuRequest()
+        if request is not None:
+            self._add_icarus_action(menu, request)
+        menu.popup(ev.globalPos())
+
+    def _add_icarus_action(self, menu, request):
+        selection = request.selectedText()
+        link = request.linkUrl()
+        link_url = link.toDisplayString() if link.isValid() else ''
+        page = self.page()
+        context = pagecontext.block(
+            selection=selection, link_url=link_url,
+            link_text=request.linkText(),
+            page_url=page.url().toDisplayString() if page is not None else '',
+            title=page.title() if page is not None else '')
+        if not context:
+            return
+        label = pagecontext.label(selection=selection, link_url=link_url)
+        menu.addSeparator()
+        action = menu.addAction('icarus')
+        action.triggered.connect(
+            lambda _checked=False: self._open_icarus(context, label))
+
+    def _open_icarus(self, context, label):
+        try:
+            bar = objreg.get('icarus-bar', scope='window', window=self._win_id)
+            bar.open(context=context, context_label=label)
+        except (KeyError, cmdutils.CommandError) as e:
+            message.error(f"icarus: {e}")
 
     def page(self) -> "WebEnginePage":
         """Return the page for this view."""

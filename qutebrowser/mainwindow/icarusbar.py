@@ -289,6 +289,9 @@ class IcarusBar(QWidget):
         self._recall = -1
         self._recalling = False
         self._editor: QObject | None = None
+        #: The context-menu block the next prompt carries, and its title label.
+        self._context = ''
+        self._context_label = ''
         #: The editor split's web view (serve's /editor page), made on first use.
         self._editor_view: QWidget | None = None
         self._frost = glass.Frost(self)
@@ -345,7 +348,8 @@ class IcarusBar(QWidget):
     def _tabbed_browser(self):
         return objreg.get('tabbed-browser', scope='window', window=self._win_id)
 
-    def open(self) -> None:
+    def open(self, context: str = '', context_label: str = '') -> None:
+        """Open on the current tab; context rides along with the next prompt."""
         tab = self._tabbed_browser().widget.currentWidget()
         if tab is None:
             raise cmdutils.CommandError("No tab to open the icarus bar on")
@@ -364,6 +368,8 @@ class IcarusBar(QWidget):
                 # session (serve re-binds it to this tab's new DevTools id).
                 conv.restore(tab.data.icarus_saved)
                 tab.data.icarus_saved = None
+        if context:
+            self._context, self._context_label = context, context_label
         self._attach(tab, conv)
         client().fetch_models(lambda _models: self._on_models())
         if not _history.seeded:
@@ -376,13 +382,15 @@ class IcarusBar(QWidget):
         self._set_mode('INSERT')
         modeman.enter(self._win_id, usertypes.KeyMode.icarus, 'icarus bar')
         self._input.setFocus()
-        if config.val.icarus.greet and not conv.greeted and not conv.entries:
+        if (config.val.icarus.greet and not self._context
+                and not conv.greeted and not conv.entries):
             conv.greet(url=tab.url().toDisplayString(), title=tab.title())
 
     def close_bar(self) -> None:
         if not self.isVisible():
             return
         self._leave_editor()
+        self._context = self._context_label = ''
         self.hide()
         self._frost.clear()
         modeman.leave(self._win_id, usertypes.KeyMode.icarus, 'icarus bar',
@@ -686,12 +694,15 @@ class IcarusBar(QWidget):
         if self._bar_command(text):
             self._input.clear()
             return
-        if conv.submit(text, url=tab.url().toDisplayString(), title=tab.title(),
+        prompt = f'{self._context}\n\n{text}' if self._context else text
+        if conv.submit(prompt, url=tab.url().toDisplayString(), title=tab.title(),
                        mid_turn=self._mid_turn):
             _history.add(text)
+            self._context = self._context_label = ''
             self._recall = -1
             self._pick = -1
             self._input.clear()
+            self.update()
 
     # ---- INSERT helpers: ghost, recall, suggestions, popup, editor -------
 
@@ -1130,6 +1141,8 @@ class IcarusBar(QWidget):
         title = f'ICARUS · {model}'
         if conv and conv.busy and conv.lane == 'browser_act':
             title += ' · laya driving'
+        if self._context_label:
+            title += f' · with {self._context_label}'
         return title
 
     def paintEvent(self, e) -> None:

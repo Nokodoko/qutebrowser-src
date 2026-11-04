@@ -9,7 +9,7 @@ import mimetypes
 import pytest
 webview = pytest.importorskip('qutebrowser.browser.webengine.webview')
 
-from qutebrowser.qt.core import Qt
+from qutebrowser.qt.core import Qt, QUrl
 from qutebrowser.qt.webenginecore import QWebEnginePage
 from qutebrowser.browser import browsertab
 from qutebrowser.utils import qtutils, usertypes
@@ -184,3 +184,48 @@ def test_create_window_browser_tab(
         view, QWebEnginePage.WebWindowType.WebBrowserTab)
 
     get_tab.assert_called_once_with(0, expected)
+
+
+def _menu_request(mocker, *, selection='', link=''):
+    request = mocker.Mock()
+    request.selectedText.return_value = selection
+    request.linkUrl.return_value = QUrl(link)
+    request.linkText.return_value = link
+    return request
+
+
+def _context_view(mocker):
+    view = mocker.Mock(_win_id=0)
+    view.page.return_value.url.return_value = QUrl('https://example.org/')
+    view.page.return_value.title.return_value = 'Example'
+    view._add_icarus_action = (
+        lambda menu, req: webview.WebEngineView._add_icarus_action(view, menu, req))
+    return view
+
+
+@pytest.mark.parametrize("selection, link", [
+    ('picked words', ''),
+    ('', 'https://example.org/docs'),
+])
+def test_context_menu_icarus_entry_opens_bar_with_context(mocker, selection, link):
+    view = _context_view(mocker)
+    menu = mocker.Mock()
+
+    view._add_icarus_action(menu, _menu_request(mocker, selection=selection, link=link))
+
+    menu.addAction.assert_called_once_with('icarus')
+    trigger = menu.addAction.return_value.triggered.connect.call_args[0][0]
+    trigger()
+    context, label = view._open_icarus.call_args[0]
+    assert context.startswith('Context from the browser (page Example (https://example.org/)):')
+    assert (selection or link) in context
+    assert label == ('selection (12 chars)' if selection else 'link')
+
+
+def test_context_menu_without_selection_or_link_has_no_icarus_entry(mocker):
+    view = _context_view(mocker)
+    menu = mocker.Mock()
+
+    view._add_icarus_action(menu, _menu_request(mocker))
+
+    menu.addAction.assert_not_called()
