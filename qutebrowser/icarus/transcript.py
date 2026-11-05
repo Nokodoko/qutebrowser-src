@@ -20,7 +20,7 @@ ones folded to their header.
 import html
 import json
 
-from qutebrowser.icarus import conversation, render
+from qutebrowser.icarus import conversation, pagecontext, render
 
 #: Lines of a live thinking block shown while it streams.
 THINKING_TAIL = 8
@@ -67,6 +67,10 @@ def transcript_html(conv: conversation.Conversation, *, selected: int = -1,
             out.append(_who('you', render.BLUE))
             out.append(f'<p style="margin:0 0 0 8px; color:{render.FG};">'
                        f'{_esc(entry.text)}</p>')
+        elif entry.kind == 'context':
+            out.append(_who('you', render.BLUE))
+            out.append(f'<p style="margin:0 0 0 8px; color:{render.DIM};">'
+                       f'📎 {html.escape(pagecontext.preview(entry.text))}</p>')
         elif entry.kind == 'icarus':
             if i == 0 or conv.entries[i - 1].kind not in ('thinking', 'step'):
                 out.append(_who('icarus', render.PURPLE))
@@ -74,12 +78,12 @@ def transcript_html(conv: conversation.Conversation, *, selected: int = -1,
             out.append(f'<div style="margin-left:8px;">'
                        f'{render.reply_html(body, indent)}</div>')
         elif entry.kind == 'thinking':
-            if i == 0 or conv.entries[i - 1].kind == 'you':
+            if i == 0 or conv.entries[i - 1].kind in ('you', 'context'):
                 out.append(_who('icarus', render.PURPLE))
             live = conv.busy and i == last
             out.append(_thinking(entry.text, live, expand_thinking))
         elif entry.kind == 'step':
-            if i == 0 or conv.entries[i - 1].kind == 'you':
+            if i == 0 or conv.entries[i - 1].kind in ('you', 'context'):
                 out.append(_who('icarus', render.PURPLE))
             lines = [line for line in entry.text.split('\n') if line.strip()]
             out.append(f'<p style="color:{render.DIM}; margin:2px 0 2px 8px;">'

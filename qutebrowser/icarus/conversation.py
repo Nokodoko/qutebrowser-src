@@ -19,7 +19,7 @@ SAVED_ENTRIES = 50
 #: How many tool calls the tools pane keeps per tab (oldest dropped).
 MAX_TOOLS = 100
 
-_KINDS = {'you', 'icarus', 'step', 'thinking', 'error'}
+_KINDS = {'you', 'context', 'icarus', 'step', 'thinking', 'error'}
 
 #: A suggestion line: the page project's AGENTS.md has the model end a reply
 #: with ``→ <message>`` lines (serve_bar_page.go in icarus).
@@ -71,8 +71,9 @@ class Entry:
 
     """One block of the transcript.
 
-    kind is ``you``, ``icarus``, ``thinking`` (the model's reasoning), ``step``
-    (a laya plan/step line) or ``error``.
+    kind is ``you``, ``context`` (a selection or link sent from the page,
+    icarus/pagecontext.py), ``icarus``, ``thinking`` (the model's reasoning),
+    ``step`` (a laya plan/step line) or ``error``.
     """
 
     kind: str
@@ -206,6 +207,22 @@ class Conversation(QObject):
             return False
         self.greeted = True
         self._start(self._client.greet(self._body('', url, title)))
+        return True
+
+    def ask_about(self, context: str, *, url: str = '', title: str = '') -> bool:
+        """Run the opening turn on a selection or link: what it is, what could be done.
+
+        POST /bar/greet with context as its text, so it never acts on the page.
+        Unlike greet it also runs on a chat that has turns already; it does not
+        while a turn runs (False: the caller sends context with the next prompt).
+        """
+        context = context.strip()
+        if not context or self.busy:
+            return False
+        self.greeted = True
+        self._page = (url, title)
+        self.entries.append(Entry('context', context))
+        self._start(self._client.greet(self._body(context, url, title)))
         return True
 
     def stop(self) -> None:

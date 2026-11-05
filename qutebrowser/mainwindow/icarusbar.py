@@ -349,7 +349,12 @@ class IcarusBar(QWidget):
         return objreg.get('tabbed-browser', scope='window', window=self._win_id)
 
     def open(self, context: str = '', context_label: str = '') -> None:
-        """Open on the current tab; context rides along with the next prompt."""
+        """Open on the current tab; with context, ask about it right away.
+
+        The opening turn on context (Conversation.ask_about) says what it is
+        and ends with suggestions. While a turn runs, context rides along with
+        the next prompt instead.
+        """
         tab = self._tabbed_browser().widget.currentWidget()
         if tab is None:
             raise cmdutils.CommandError("No tab to open the icarus bar on")
@@ -368,7 +373,8 @@ class IcarusBar(QWidget):
                 # session (serve re-binds it to this tab's new DevTools id).
                 conv.restore(tab.data.icarus_saved)
                 tab.data.icarus_saved = None
-        if context:
+        if context and not conv.ask_about(
+                context, url=tab.url().toDisplayString(), title=tab.title()):
             self._context, self._context_label = context, context_label
         self._attach(tab, conv)
         client().fetch_models(lambda _models: self._on_models())

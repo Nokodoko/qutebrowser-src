@@ -46,6 +46,23 @@ def block(*, selection: str = '', link_url: str = '', link_text: str = '',
     return '\n'.join(parts)
 
 
+def preview(context: str, limit: int = 160) -> str:
+    """One line for the transcript: the link and the start of the selection.
+
+    context is a block(); anything else is shown as its first line.
+    """
+    lines = context.split('\n')
+    parts = [line for line in lines if line.startswith('Link: ')]
+    if 'Selected text:' in lines:
+        start = lines.index('Selected text:') + 2
+        body = lines[start:-1] if lines[-1] == '```' else lines[start:]
+        text = ' '.join(' '.join(body).split())
+        if text:
+            parts.append(f'“{text}”')
+    line = ' · '.join(parts) or (lines[0] if lines else '')
+    return line if len(line) <= limit else line[:limit - 1] + '…'
+
+
 def label(*, selection: str = '', link_url: str = '') -> str:
     """Name the context for the bar's title: what will ride along."""
     kinds = []

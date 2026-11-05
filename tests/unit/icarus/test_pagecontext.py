@@ -43,6 +43,22 @@ def test_long_selection_is_clipped_on_a_utf8_boundary():
     assert '\n' + 'é' * 5 + '\n… [truncated by the icarus context menu]' in got
 
 
+def test_preview_is_the_link_and_the_selection_on_one_line():
+    block = pagecontext.block(selection='one\n  two', link_url='https://y',
+                              link_text='Y', page_url='https://x')
+    assert pagecontext.preview(block) == 'Link: [Y](https://y) · “one two”'
+
+
+def test_preview_is_clipped():
+    block = pagecontext.block(selection='w' * 300)
+    got = pagecontext.preview(block, limit=20)
+    assert len(got) == 20 and got.endswith('…')
+
+
+def test_preview_of_a_foreign_text_is_its_first_line():
+    assert pagecontext.preview('just this\nnot that') == 'just this'
+
+
 def test_label():
     assert pagecontext.label(selection='abc') == 'selection (3 chars)'
     assert pagecontext.label(link_url='https://y') == 'link'

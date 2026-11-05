@@ -6,7 +6,8 @@
 
 import pytest
 
-from qutebrowser.icarus import client, conversation, history, render, transcript, working
+from qutebrowser.icarus import (client, conversation, history, pagecontext, render,
+                                transcript, working)
 from qutebrowser.mainwindow import icarusbar
 
 
@@ -272,6 +273,40 @@ def test_conversation_greet_once(conv):
     fake.turns[0].finished.emit()
     assert not c.greet()
     assert c.entries == []  # the greeting adds no 'you' entry
+
+
+def test_conversation_ask_about_greets_with_the_context(conv):
+    c, fake = conv
+    c.submit('earlier')
+    fake.turns[0].finished.emit()
+    block = pagecontext.block(selection='picked words', page_url='https://x.test')
+
+    assert c.ask_about(block, url='https://x.test', title='X')
+
+    body = fake.turns[1].body
+    assert body['greet'] and body['text'] == block and body['url'] == 'https://x.test'
+    assert c.entries[-1] == conversation.Entry('context', block)
+    fake.turns[1].on_event({'kind': 'delta', 'text': 'A phrase.\n\n→ explain it\n→ translate it'})
+    fake.turns[1].finished.emit()
+    assert c.suggestions == ['explain it', 'translate it']
+    assert not c.greet()
+
+
+def test_conversation_ask_about_waits_for_a_running_turn(conv):
+    c, fake = conv
+    c.submit('running')
+    assert not c.ask_about('ctx')
+    assert not c.ask_about('  ')
+    assert [e.kind for e in c.entries] == ['you']
+
+
+def test_transcript_shows_context_as_one_line(conv):
+    c, fake = conv
+    block = pagecontext.block(selection='picked\nwords', page_url='https://x.test')
+    c.entries = [conversation.Entry('context', block)]
+    out = transcript.transcript_html(c)
+    assert 'you ❯' in out and '📎 “picked words”' in out
+    assert 'Context from the browser' not in out
 
 
 def test_conversation_steer(conv):
