@@ -147,6 +147,11 @@ class WebEngineView(QWebEngineView):
 
         On selected text or a link, ``icarus`` opens the icarus bar with that
         as context for the next prompt (icarus/pagecontext.py).
+
+        The menu runs with the blocking ``exec`` (as the WebKit view does),
+        never ``popup``: ``popup`` returns while the menu is still open, the
+        Python wrapper of the menu dies with this frame, and closing the menu
+        then segfaults in sip. The bar opens only once the menu has closed.
         """
         if config.val.input.mouse.rocker_gestures:
             ev.ignore()
@@ -158,11 +163,13 @@ class WebEngineView(QWebEngineView):
         if menu is None:
             return
         request = self.lastContextMenuRequest()
-        if request is not None:
-            self._add_icarus_action(menu, request)
-        menu.popup(ev.globalPos())
+        icarus = None if request is None else self._add_icarus_action(menu, request)
+        chosen = menu.exec(ev.globalPos())
+        if icarus is not None and chosen is icarus[0]:
+            self._open_icarus(icarus[1], icarus[2])
 
     def _add_icarus_action(self, menu, request):
+        """Add ``icarus`` to menu; return (action, context, label) or None."""
         selection = request.selectedText()
         link = request.linkUrl()
         link_url = link.toDisplayString() if link.isValid() else ''
@@ -173,12 +180,10 @@ class WebEngineView(QWebEngineView):
             page_url=page.url().toDisplayString() if page is not None else '',
             title=page.title() if page is not None else '')
         if not context:
-            return
+            return None
         label = pagecontext.label(selection=selection, link_url=link_url)
         menu.addSeparator()
-        action = menu.addAction('icarus')
-        action.triggered.connect(
-            lambda _checked=False: self._open_icarus(context, label))
+        return menu.addAction('icarus'), context, label
 
     def _open_icarus(self, context, label):
         try:

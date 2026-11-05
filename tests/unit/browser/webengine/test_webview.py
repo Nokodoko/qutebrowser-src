@@ -211,12 +211,11 @@ def test_context_menu_icarus_entry_opens_bar_with_context(mocker, selection, lin
     view = _context_view(mocker)
     menu = mocker.Mock()
 
-    view._add_icarus_action(menu, _menu_request(mocker, selection=selection, link=link))
+    action, context, label = view._add_icarus_action(
+        menu, _menu_request(mocker, selection=selection, link=link))
 
     menu.addAction.assert_called_once_with('icarus')
-    trigger = menu.addAction.return_value.triggered.connect.call_args[0][0]
-    trigger()
-    context, label = view._open_icarus.call_args[0]
+    assert action is menu.addAction.return_value
     assert context.startswith('Context from the browser (page Example (https://example.org/)):')
     assert (selection or link) in context
     assert label == ('selection (12 chars)' if selection else 'link')
@@ -226,6 +225,26 @@ def test_context_menu_without_selection_or_link_has_no_icarus_entry(mocker):
     view = _context_view(mocker)
     menu = mocker.Mock()
 
-    view._add_icarus_action(menu, _menu_request(mocker))
+    assert view._add_icarus_action(menu, _menu_request(mocker)) is None
 
     menu.addAction.assert_not_called()
+
+
+@pytest.mark.parametrize("picked, opens", [(True, True), (False, False)])
+def test_context_menu_runs_blocking_and_opens_bar_after(
+        mocker, config_stub, picked, opens):
+    """popup() returned with the menu open and crashed in sip on close."""
+    config_stub.val.input.mouse.rocker_gestures = False
+    view = _context_view(mocker)
+    menu = view.createStandardContextMenu.return_value
+    view.lastContextMenuRequest.return_value = _menu_request(
+        mocker, selection='picked words')
+    menu.exec.side_effect = lambda pos: (
+        menu.addAction.return_value if picked else None)
+    ev = mocker.Mock()
+
+    webview.WebEngineView.contextMenuEvent(view, ev)
+
+    menu.exec.assert_called_once_with(ev.globalPos())
+    menu.popup.assert_not_called()
+    assert view._open_icarus.called == opens
