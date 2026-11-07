@@ -97,7 +97,8 @@ def transcript_html(conv: conversation.Conversation, *, selected: int = -1,
                    f'⧖ queued · {_esc(text)}</p>')
     if conv.suggestions and not conv.busy:
         picks = []
-        for n, text in enumerate(conv.suggestions):
+        labels = conv.suggestions + (['all'] if len(conv.suggestions) > 1 else [])
+        for n, text in enumerate(labels):
             if n == selected:
                 style = (f'color:{render.CODE_BG}; background-color:{render.AMBER};'
                          ' font-weight:bold;')

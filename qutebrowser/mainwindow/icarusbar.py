@@ -29,7 +29,8 @@ first open, introduces the page (icarus.greet). Keys:
                     close (q too)
     NORMAL          vim on the input (icarus/vim.py)
     <Tab>           accept the / popup's pick, else cycle the reply's
-                    → suggestions into the input
+                    → suggestions into the input, then `all` (every
+                    suggestion as one numbered message)
     → <End> <Ctrl+f>  accept the history ghost text at the end of the input
     <Up>/<Down>     recall earlier prompts into an empty input
     /               skills and the bar's own commands (/new /model /tools
@@ -772,8 +773,9 @@ class IcarusBar(QWidget):
         conv = self._conv
         if conv is None or not conv.suggestions or conv.busy:
             return False
-        self._pick = (self._pick + 1) % len(conv.suggestions)
-        self._input.setPlainText(conv.suggestions[self._pick])
+        picks = conversation.picks(conv.suggestions)
+        self._pick = (self._pick + 1) % len(picks)
+        self._input.setPlainText(picks[self._pick])
         self._input.moveCursor(QTextCursor.MoveOperation.End)
         self._refresh()
         return True

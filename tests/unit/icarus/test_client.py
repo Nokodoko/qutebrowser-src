@@ -266,6 +266,25 @@ def test_split_suggestions(text, body, suggestions):
     assert conversation.split_suggestions(text) == (body, suggestions)
 
 
+@pytest.mark.parametrize('suggestions, picks', [
+    ([], []),
+    (['one'], ['one']),
+    (['one', 'two'], ['one', 'two', 'Do all of these, in order:\n1. one\n2. two']),
+])
+def test_picks(suggestions, picks):
+    assert conversation.picks(suggestions) == picks
+
+
+def test_transcript_shows_the_all_pick(conv):
+    c, fake = conv
+    c.suggestions = ['one', 'two']
+    out = transcript.transcript_html(c, selected=2)
+    assert '→ one' in out and '→ two' in out
+    assert f'background-color:{render.AMBER}; font-weight:bold;">&nbsp;→ all&nbsp;' in out
+    c.suggestions = ['one']
+    assert '→ all' not in transcript.transcript_html(c)
+
+
 def test_conversation_greet_once(conv):
     c, fake = conv
     assert c.greet(url='https://x.test', title='X')

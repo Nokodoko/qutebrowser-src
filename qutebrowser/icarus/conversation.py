@@ -52,6 +52,18 @@ def split_suggestions(text: str) -> tuple[str, list[str]]:
     return body, suggestions
 
 
+def picks(suggestions: list[str]) -> list[str]:
+    """The messages Tab cycles through for a reply's suggestions.
+
+    Each suggestion, then, when there are two or more, one message asking for
+    all of them in order (the ``all`` pick).
+    """
+    if len(suggestions) < 2:
+        return list(suggestions)
+    steps = '\n'.join(f'{n}. {text}' for n, text in enumerate(suggestions, 1))
+    return [*suggestions, f'Do all of these, in order:\n{steps}']
+
+
 def _split_tail(lines: list[str]) -> tuple[str, list[str]]:
     suggestions: list[str] = []
     while lines:
