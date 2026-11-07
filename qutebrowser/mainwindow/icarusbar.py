@@ -48,9 +48,11 @@ first open, introduces the page (icarus.greet). Keys:
     <Ctrl+y>        yank the last answer
 """
 
+import contextlib
 import html
 import json
 import time
+from collections.abc import Iterator
 from urllib.parse import urlencode
 
 from qutebrowser.qt.core import (QEvent, QObject, QRect, QSize, Qt, QUrl,
@@ -154,6 +156,28 @@ def editor_result(raw) -> tuple[str, bool] | None:
     if not isinstance(data, dict) or not isinstance(data.get('text'), str):
         return None
     return data['text'], bool(data.get('autoSend'))
+
+
+#: How close to the bottom (px) a view still counts as following the stream.
+FOLLOW_SLACK = 4
+
+
+@contextlib.contextmanager
+def kept_scroll(view) -> Iterator[None]:
+    """Keep a text view's scroll position across a change to its content or size.
+
+    A view at its end stays at its end, so the transcript follows a stream.
+    Any other position is put back: setHtml resets a QTextBrowser to the top,
+    and a resize after the pin (the working strip appearing) would otherwise
+    leave a following view short of its end and drop the follow for good.
+    """
+    bar = view.verticalScrollBar()
+    value = bar.value()
+    at_end = value >= bar.maximum() - FOLLOW_SLACK
+    try:
+        yield
+    finally:
+        bar.setValue(bar.maximum() if at_end else value)
 
 
 def popup_items(text: str, skills: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -594,31 +618,25 @@ class IcarusBar(QWidget):
         conv = self._conv
         if conv is None:
             return
-        bar = self._transcript.verticalScrollBar()
-        at_end = bar.value() >= bar.maximum() - 4
-        if conv.entries or conv.busy:
-            self._transcript.setHtml(transcript.transcript_html(
-                conv, selected=self._pick, expand_thinking=self._expand_thinking,
-                indent=self._indent()))
-        else:
-            self._transcript.setHtml(self._welcome())
-        if at_end:
-            bar.setValue(bar.maximum())
-        was_busy = self._strip.isVisible()
-        self._strip.follow(conv if self.isVisible() else None)
-        if was_busy != self._strip.isVisible():
-            self._layout()
+        with kept_scroll(self._transcript):
+            if conv.entries or conv.busy:
+                self._transcript.setHtml(transcript.transcript_html(
+                    conv, selected=self._pick, expand_thinking=self._expand_thinking,
+                    indent=self._indent()))
+            else:
+                self._transcript.setHtml(self._welcome())
+            was_busy = self._strip.isVisible()
+            self._strip.follow(conv if self.isVisible() else None)
+            if was_busy != self._strip.isVisible():
+                self._layout()
         if self._side == 'tools':
             self._refresh_tools()
         self.update()
 
     def _refresh_tools(self) -> None:
         conv = self._conv
-        bar = self._tools.verticalScrollBar()
-        at_end = bar.value() >= bar.maximum() - 4
-        self._tools.setHtml(transcript.tools_html(conv.tools if conv else []))
-        if at_end:
-            bar.setValue(bar.maximum())
+        with kept_scroll(self._tools):
+            self._tools.setHtml(transcript.tools_html(conv.tools if conv else []))
 
     def _welcome(self) -> str:
         model = self._conv.model if self._conv else None
@@ -1113,7 +1131,8 @@ class IcarusBar(QWidget):
                           content.width(), line)
             self._strip.setGeometry(strip)
             content.setBottom(strip.top() - 4)
-        self._transcript.setGeometry(content)
+        with kept_scroll(self._transcript):
+            self._transcript.setGeometry(content)
         self._input.setGeometry(glass.content_rect(inp, font))
         if self._popup.isVisible():
             rows = min(self._popup.count(), POPUP_ROWS)
