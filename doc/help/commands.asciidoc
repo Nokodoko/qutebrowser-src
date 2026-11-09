@@ -132,6 +132,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<tab-close,tab-close>>|Close the current/[count]th tab.
 |<<tab-focus,tab-focus>>|Select the tab given as argument/[count].
 |<<tab-give,tab-give>>|Give the current tab to a new or existing window if win_id given.
+|<<tab-kill,tab-kill>>|Close every tab matching a pattern, across all windows.
 |<<tab-move,tab-move>>|Move the current tab according to the argument and [count].
 |<<tab-mute,tab-mute>>|Mute/Unmute the current/[count]th tab.
 |<<tab-next,tab-next>>|Switch to the next tab, or switch [count] tabs forward.
@@ -1519,6 +1520,24 @@ If no win_id is given, the tab will get detached into a new window.
 
 ==== count
 Overrides win_id (index starts at 1 for win_id=0).
+
+[[tab-kill]]
+=== tab-kill
+Syntax: +:tab-kill [*--force*] [*--yes*] 'pattern'+
+
+Close every tab matching a pattern, across all windows.
+
+A tab matches when its title, URL or index holds every word of the pattern, in any order and ignoring case: the tabs the completion lists for it. The matches are confirmed first and `:undo` reopens them, one window at a time. Picking a row from the completion closes that tab alone.
+
+==== positional arguments
+* +'pattern'+: The words to match, or the `win_id/index` of a picked tab.
+
+==== optional arguments
+* +*-f*+, +*--force*+: Close matching pinned tabs too; they are kept otherwise.
+* +*-y*+, +*--yes*+: Close without asking.
+
+==== note
+* This command does not split arguments after the last argument and handles quotes literally.
 
 [[tab-move]]
 === tab-move
