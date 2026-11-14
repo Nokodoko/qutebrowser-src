@@ -382,6 +382,8 @@ class IPCServer(QObject):
             log.ipc.debug("Read from socket 0x{:x}: {!r}".format(
                 id(socket), data))
             self._handle_data(data)
+            if self._socket is None:
+                break
             socket = self._get_socket(warn=False)
 
         if self._socket is not None:
