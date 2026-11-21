@@ -875,7 +875,7 @@ Default:
 * +pass:[H]+: +pass:[back]+
 * +pass:[I]+: +pass:[tile-nmaster +1]+
 * +pass:[L]+: +pass:[forward]+
-* +pass:[T]+: +pass:[cmd-set-text -s :tab-select]+
+* +pass:[T]+: +pass:[cmd-set-text -s :tab-select --monocle]+
 * +pass:[d]+: +pass:[scroll-page 0 0.5]+
 * +pass:[f]+: +pass:[hint]+
 * +pass:[gg]+: +pass:[scroll-to-perc 0]+

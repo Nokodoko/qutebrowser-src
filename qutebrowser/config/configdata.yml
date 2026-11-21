@@ -4439,7 +4439,7 @@ bindings.default:
       L: forward
       +: zoom-in
       '-': zoom-out
-      T: cmd-set-text -s :tab-select
+      T: cmd-set-text -s :tab-select --monocle
       r: cmd-set-text --space :tag-rename
       <Escape>: mode-leave
     icarus: {}

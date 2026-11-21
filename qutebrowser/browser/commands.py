@@ -29,6 +29,16 @@ from qutebrowser.completion.models import urlmodel, miscmodels
 from qutebrowser.mainwindow import mainwindow, windowundo, tiling
 
 
+def _maybe_monocle(tabbed_browser, monocle: bool) -> None:
+    """Lay the view of the window the tab was focused in out as monocle.
+
+    Called after the tab was focused, so a tab whose tagset the view has just
+    followed monocles the view it actually ended up in.
+    """
+    if monocle:
+        tabbed_browser.widget.tiles.set_layout('monocle')
+
+
 class CommandDispatcher:
 
     """Command dispatcher for TabbedBrowser.
@@ -1141,18 +1151,23 @@ class CommandDispatcher:
                        maxsplit=0)
     @cmdutils.argument('index', completion=miscmodels.tabs)
     @cmdutils.argument('count', value=cmdutils.Value.count)
-    def tab_select(self, index=None, count=None):
+    @cmdutils.argument('monocle', flag='m')
+    def tab_select(self, index=None, count=None, monocle: bool = False):
         """Select tab by index or url/title best match.
 
         Focuses window if necessary when index is given. If both index and
         count are given, use count.
 
-        With neither index nor count given, open the qute://tabs page.
+        With neither index nor count given, open the qute://tabs page (and
+        --monocle does nothing).
+
+        With --monocle, the view the tab ends up in is laid out monocle.
 
         Args:
             index: The [win_id/]index of the tab to focus. Or a substring
                    in which case the closest match will be focused.
             count: The tab index to focus, starting with 1.
+            monocle: Lay the resulting view out as a single monocle tile.
         """
         if count is None and index is None:
             self.openurl('qute://tabs/', tab=True)
@@ -1166,6 +1181,7 @@ class CommandDispatcher:
         window = tabbed_browser.widget.window()
         mainwindow.raise_window(window)
         tabbed_browser.widget.setCurrentWidget(tab)
+        _maybe_monocle(tabbed_browser, monocle)
 
     @cmdutils.register(instance='command-dispatcher', scope='window',
                        name='tab-pick', star_args_optional=True)

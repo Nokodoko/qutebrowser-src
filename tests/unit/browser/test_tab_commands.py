@@ -202,3 +202,39 @@ class TestTileFocus:
         dispatcher.tile_focus('next')
         assert tb.widget.currentWidget() is b
         assert tiles.seltags == tiling.tag_mask(2)
+
+
+class TestTabSelectMonocle:
+
+    def test_monocle_sets_layout_after_following(self, dispatchers):
+        tb, dispatcher = dispatchers[0]
+        tiles = tb.widget.tiles
+        tb.widget.widget(2).data.tags = tiling.tag_mask(2)
+        dispatcher.tab_select(index='3', monocle=True)
+        assert tiles.seltags == tiling.tag_mask(2)
+        assert tiles.params.layout == 'monocle'
+
+    def test_monocle_applies_to_the_window_the_tab_is_in(self, dispatchers):
+        """Focusing a tab in another window monocles that window, not this one.
+
+        Regression: the monocle was applied to the tiles of the window the
+        command ran in, not the window the tab ended up being focused in.
+        """
+        tb0, dispatcher = dispatchers[0]
+        tb1, _ = dispatchers[1]
+        dispatcher.tab_select(index='1/2', monocle=True)
+        assert tb1.widget.tiles.params.layout == 'monocle'
+        assert tb0.widget.tiles.params.layout != 'monocle'
+
+    def test_without_flag_layout_unchanged(self, dispatchers):
+        tb, dispatcher = dispatchers[0]
+        dispatcher.tab_select(index='2', monocle=False)
+        assert tb.widget.tiles.params.layout != 'monocle'
+
+    def test_monocle_does_nothing_for_tabs_page(self, dispatchers, mocker):
+        """With no index, :tab-select opens qute://tabs and monocle is moot."""
+        tb, dispatcher = dispatchers[0]
+        openurl = mocker.patch.object(dispatcher, 'openurl')
+        dispatcher.tab_select(monocle=True)
+        openurl.assert_called_once_with('qute://tabs/', tab=True)
+        assert tb.widget.tiles.params.layout != 'monocle'
