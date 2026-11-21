@@ -398,14 +398,24 @@ class CommandDispatcher:
         the first pane of the next tag and the view follows, so the browser
         shifts into that zellij tab with the selected pane.
 
+        While a pick (see `:tab-pick`) is shown, stepping cycles only through
+        the picked tabs and never changes the view or leaves the pick.
+
         Args:
             direction: `next` or `prev`.
         """
         tiles = self._tiles()
         widget = self._tabbed_browser.widget
+        step = 1 if direction == 'next' else -1
+        if tiles.pick is not None:
+            target = tiling.cycle(tiles.visible_tabs(),
+                                  self._current_widget(), step)
+            if target is None:
+                return
+            widget.setCurrentWidget(target)
+            return
         tabs = [(widget.widget(i), tiling.tags_of(widget.widget(i)))
                 for i in range(widget.count())]
-        step = 1 if direction == 'next' else -1
         hit = tiling.step_focus(tabs, self._current_widget(), tiles.seltags,
                                 step)
         if hit is None:
@@ -1156,6 +1166,36 @@ class CommandDispatcher:
         window = tabbed_browser.widget.window()
         mainwindow.raise_window(window)
         tabbed_browser.widget.setCurrentWidget(tab)
+
+    @cmdutils.register(instance='command-dispatcher', scope='window',
+                       name='tab-pick', star_args_optional=True)
+    def tab_pick(self, *indices: str) -> None:
+        """Show the given tabs in a transient pick view.
+
+        A pick is a dwm-style view of an arbitrary set of tabs: it changes no
+        tab's tags, and `:tag-view prev` goes back to the tagset viewed
+        before it. Tabs living in another window are skipped.
+
+        Args:
+            indices: The [win_id/]index of each tab to pick, in the same
+                     format `:tab-select` accepts.
+        """
+        if not indices:
+            raise cmdutils.CommandError(
+                "Usage: :tab-pick <index> [<index>...]")
+        tiles = self._tiles()
+        tabs: list = []
+        for index in indices:
+            tabbed_browser, tab = self._resolve_tab_index(index)
+            if tabbed_browser is not self._tabbed_browser:
+                message.warning(f"Tab {index} is in another window")
+                continue
+            if tab not in tabs:
+                tabs.append(tab)
+        if not tabs:
+            raise cmdutils.CommandError("No tab to pick in this window")
+        tiles.set_pick(tabs)
+        self._tabbed_browser.widget.setCurrentWidget(tabs[0])
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
     @cmdutils.argument('index', choices=['last', 'stack-next', 'stack-prev'],

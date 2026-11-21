@@ -137,6 +137,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<tab-mute,tab-mute>>|Mute/Unmute the current/[count]th tab.
 |<<tab-next,tab-next>>|Switch to the next tab, or switch [count] tabs forward.
 |<<tab-only,tab-only>>|Close all tabs except for the current one.
+|<<tab-pick,tab-pick>>|Show the given tabs in a transient pick view.
 |<<tab-pin,tab-pin>>|Pin/Unpin the current/[count]th tab.
 |<<tab-prev,tab-prev>>|Switch to the previous tab, or switch [count] tabs back.
 |<<tab-select,tab-select>>|Select tab by index or url/title best match.
@@ -1585,6 +1586,18 @@ Close all tabs except for the current one.
 
 * +*-f*+, +*--force*+: Avoid confirmation for pinned tabs.
 
+[[tab-pick]]
+=== tab-pick
+Syntax: +:tab-pick ['indices' ...]+
+
+Show the given tabs in a transient pick view.
+
+A pick is a dwm-style view of an arbitrary set of tabs: it changes no tab's tags, and `:tag-view prev` goes back to the tagset viewed before it. Tabs living in another window are skipped.
+
+==== positional arguments
+* +'indices'+: The [win_id/]index of each tab to pick, in the same format `:tab-select` accepts.
+
+
 [[tab-pin]]
 === tab-pin
 Pin/Unpin the current/[count]th tab.
@@ -1707,7 +1720,7 @@ Syntax: +:tile-focus ['direction']+
 
 Focus the next/previous tab in the one stack (zellij j/k).
 
-Every tag is a zellij tab and its browser tabs are the panes, in one flat stack. Stepping past the last pane of the viewed tag moves on to the first pane of the next tag and the view follows, so the browser shifts into that zellij tab with the selected pane.
+Every tag is a zellij tab and its browser tabs are the panes, in one flat stack. Stepping past the last pane of the viewed tag moves on to the first pane of the next tag and the view follows, so the browser shifts into that zellij tab with the selected pane. While a pick (see `:tab-pick`) is shown, stepping cycles only through the picked tabs and never changes the view or leaves the pick.
 
 ==== positional arguments
 * +'direction'+: `next` or `prev`.

@@ -16,7 +16,8 @@ from qutebrowser.keyinput import modeman
 from qutebrowser.utils import usertypes, log, objreg, utils
 from qutebrowser.mainwindow.statusbar import (backforward, command, progress,
                                               keystring, percentage, url,
-                                              tabindex, textbase, clock, searchmatch)
+                                              tabindex, textbase, clock,
+                                              searchmatch, tilingstatus)
 
 
 # The segment label of a mode whose name is not its label.
@@ -245,6 +246,7 @@ class StatusBar(QWidget):
         self.keystring = keystring.KeyString()
         self.prog = progress.Progress(self)
         self.clock = clock.Clock()
+        self.tiling = tilingstatus.TilingStatus()
         self._text_widgets = []
         self._draw_widgets()
 
@@ -272,6 +274,8 @@ class StatusBar(QWidget):
             return self.prog
         elif key == 'search_match':
             return self.search_match
+        elif key == 'tiling':
+            return self.tiling
         elif key.startswith('text:'):
             new_text_widget = textbase.TextBase()
             # Selected by name in the stylesheet
@@ -328,6 +332,8 @@ class StatusBar(QWidget):
                     widget.format = split_segment[1]
                 else:
                     widget.format = '%X'
+            elif segment == 'tiling':
+                widget.register_window(self._win_id)
 
             widget.show()
 
@@ -336,7 +342,8 @@ class StatusBar(QWidget):
         # Start with widgets hidden and show them when needed
         for widget in [self.url, self.percentage,
                        self.backforward, self.tabindex,
-                       self.keystring, self.prog, self.clock, *self._text_widgets]:
+                       self.keystring, self.prog, self.clock, self.tiling,
+                       *self._text_widgets]:
             assert isinstance(widget, QWidget)
             if widget in [self.prog, self.backforward]:
                 widget.enabled = False

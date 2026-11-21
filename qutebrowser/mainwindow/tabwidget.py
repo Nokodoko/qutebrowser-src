@@ -122,15 +122,28 @@ class TabWidget(QTabWidget):
         QTabBar refuses to select a hidden tab, and tabs off the viewed tags
         are hidden in the bar. So first bring the tab's tag into view (dwm
         follows focus to an off-view client the same way), re-show the bar
-        tabs for that view, then select.
+        tabs for that view, then select. A tab outside an active pick counts
+        as off-view: the pick is dropped and its tag is viewed.
         """
         tab = self.widget(idx)
         if tab is not None and not self.tab_bar().isTabVisible(idx):
-            tags = tiling.tags_of(tab)
-            if not tiling.is_visible(tags, self.tiles.seltags):
-                self.tiles.view(tags & -tags)
+            self._follow_tab(tab)
             self._update_bar_visibility()
         super().setCurrentIndex(idx)
+
+    def _follow_tab(self, tab: QWidget) -> None:
+        """Make ``tab`` visible, leaving a pick or viewing its first tag."""
+        tiles = self.tiles
+        if tab in tiles.visible_tabs():
+            return
+        if tiles.pick is not None:
+            # Back to the tagset viewed before the pick, then follow.
+            tiles.clear_pick()
+            if tab in tiles.visible_tabs():
+                return
+        tags = tiling.tags_of(tab)
+        if not tiling.is_visible(tags, tiles.seltags):
+            tiles.view(tags & -tags)
 
     def _wrap(self, page: QWidget) -> QWidget:
         """Move a new tab into the tile area and return its proxy page."""
@@ -157,14 +170,13 @@ class TabWidget(QTabWidget):
 
         Index-based commands (tab-focus, tab-next, undo, ...) can land on a
         tab whose tags are not viewed; dwm switches the view in that case
-        rather than focusing something invisible.
+        rather than focusing something invisible. "Visible" is whatever the
+        tile area shows, so a tab outside an active pick ends the pick.
         """
         current = self.currentWidget()
         if current is None:
             return
-        tags = tiling.tags_of(current)
-        if not tiling.is_visible(tags, self.tiles.seltags):
-            self.tiles.view(tags & -tags)
+        self._follow_tab(current)
 
     @pyqtSlot()
     def _update_bar_visibility(self) -> None:

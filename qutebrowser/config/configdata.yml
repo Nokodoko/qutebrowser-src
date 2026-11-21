@@ -2349,6 +2349,7 @@ statusbar.widgets:
           history."
         - search_match: "A match count when searching, e.g. `Match [2/10]`."
         - tabs: "Current active tab, e.g. `2`."
+        - tiling: "Viewed tags, or `PICK n` while a pick view is on screen."
         - keypress: "Display pressed keys when composing a vi command."
         - progress: "Progress bar for the current page loading."
         - 'text:foo': "Display the static text after the colon, `foo` in the example."

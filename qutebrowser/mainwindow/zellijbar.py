@@ -43,6 +43,7 @@ class ZellijBar(QWidget):
         bar.installEventFilter(self)
         tiles.arranged.connect(self.refresh)
         tiles.view_changed.connect(self.refresh)
+        tiles.pick_changed.connect(self.refresh)
         tiles.renamed.connect(self.refresh)
         config.instance.changed.connect(self._on_config_changed)
         self.refresh()
@@ -62,7 +63,14 @@ class ZellijBar(QWidget):
     # ---- content -------------------------------------------------------
 
     def _entries(self) -> list[tuple[int, str, bool, int]]:
-        """(tag, label, selected, count) for every tag worth a ribbon."""
+        """(tag, label, selected, count) for every tag worth a ribbon.
+
+        While a pick view is active, a single `PICK n` ribbon replaces the
+        tag ribbons: no tag is on view then.
+        """
+        if self._tiles.pick is not None:
+            count = len(self._tiles.pick)
+            return [(0, f'PICK {count}', True, count)]
         occupied = self._tiles.occupied()
         shown = occupied | (self._tiles.seltags & tiling.TAGMASK)
         limit = self._tiles.limit()
@@ -163,8 +171,13 @@ class ZellijBar(QWidget):
         pos = e.position().toPoint()
         for rect, tag in self._ribbons:
             if rect.contains(pos):
-                log.webview.debug(f"zellij bar: view tag {tag}")
-                self._tiles.view(tiling.tag_mask(tag))
+                if tag == 0:
+                    # The PICK ribbon: leave the pick, like :tag-view prev.
+                    log.webview.debug("zellij bar: clear pick")
+                    self._tiles.clear_pick()
+                else:
+                    log.webview.debug(f"zellij bar: view tag {tag}")
+                    self._tiles.view(tiling.tag_mask(tag))
                 e.accept()
                 return
         e.ignore()

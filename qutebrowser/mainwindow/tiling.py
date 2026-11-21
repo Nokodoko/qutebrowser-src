@@ -34,6 +34,10 @@ TAGMASK = (1 << NUM_TAGS) - 1
 
 LAYOUTS = ('tile', 'monocle')
 
+#: pertag slot holding the layout of a pick view (see ``TileArea.pick``);
+#: real slots are the viewed tag (1-9) or 0 for a multi-tag view.
+PICK_SLOT = -1
+
 
 def default_name(tag: int) -> str:
     """The name zellij gives an unnamed tab."""
@@ -96,6 +100,22 @@ def stack_order(tabs: Sequence[tuple[object, int]]) -> list[tuple[object, int]]:
         bit = 1 << (tag - 1)
         out.extend((tab, tag) for tab, mask in tabs if mask & bit)
     return out
+
+
+def cycle(seq: Sequence[object], current: object, step: int) -> object | None:
+    """The element one step from ``current`` in ``seq``, wrapping both ways.
+
+    Returns None when ``seq`` is empty. A ``current`` that is not in ``seq``
+    is taken to sit before its first element, so a step forward lands on it
+    and a step back wraps to its last element.
+    """
+    if not seq:
+        return None
+    try:
+        idx = seq.index(current)
+    except ValueError:
+        return seq[0] if step > 0 else seq[-1]
+    return seq[(idx + step) % len(seq)]
 
 
 def step_focus(tabs: Sequence[tuple[object, int]], current: object,
@@ -302,10 +322,13 @@ class TileArea(QWidget):
     Signals:
         arranged: Emitted after a relayout, so a status widget can update.
         view_changed: Emitted when the selected tagset changed.
+        pick_changed: Emitted when the pick view changed (number of picked
+                      tabs, 0 when there is no pick).
     """
 
     arranged = pyqtSignal()
     view_changed = pyqtSignal(int)
+    pick_changed = pyqtSignal(int)
     #: A tag was renamed (tag number).
     renamed = pyqtSignal(int)
 
@@ -313,6 +336,10 @@ class TileArea(QWidget):
         super().__init__(parent)
         self.seltags = 1
         self._prev_seltags = 1
+        #: The transient pick view (see ``set_pick``), None for a tag view.
+        self.pick: list[QWidget] | None = None
+        #: The tagset viewed when the current pick was entered.
+        self._pick_return = 0
         #: pertag: one LayoutParams per tag, slot 0 for multi-tag views.
         self._pertag: dict[int, LayoutParams] = {}
         #: zellij tab names, by tag number; unnamed tags use default_name().
@@ -327,7 +354,13 @@ class TileArea(QWidget):
     # ---- pertag: the layout state belongs to the viewed tag -------------
 
     def curtag(self) -> int:
-        """dwm pertag's curtag: the viewed tag, 0 when several are viewed."""
+        """dwm pertag's curtag: the viewed tag, 0 when several are viewed.
+
+        A pick view is not a tag, so it gets its own slot; its layout starts
+        out tiled and never shares state with a tag slot.
+        """
+        if self.pick is not None:
+            return PICK_SLOT
         viewed = tag_numbers(self.seltags)
         return viewed[0] if len(viewed) == 1 else 0
 
@@ -335,7 +368,8 @@ class TileArea(QWidget):
     def params(self) -> LayoutParams:
         slot = self.curtag()
         if slot not in self._pertag:
-            self._pertag[slot] = self._params_from_config()
+            self._pertag[slot] = self._params_from_config(
+                'tile' if slot == PICK_SLOT else None)
         return self._pertag[slot]
 
     @params.setter
@@ -371,9 +405,9 @@ class TileArea(QWidget):
         return count_on(tag, self.tag_list())
 
     @staticmethod
-    def _params_from_config() -> LayoutParams:
+    def _params_from_config(layout: str | None = None) -> LayoutParams:
         return LayoutParams(
-            layout=config.val.tabs.tiling.layout,
+            layout=config.val.tabs.tiling.layout if layout is None else layout,
             mfact=config.val.tabs.tiling.mfact,
             nmaster=config.val.tabs.tiling.nmaster,
             gap=config.val.tabs.tiling.gap,
@@ -417,13 +451,31 @@ class TileArea(QWidget):
             self._tabs.remove(tab)
         if tab is self._current:
             self._current = None
+        if self.pick is not None and tab in self.pick:
+            pick = [t for t in self.pick if t is not tab]
+            if pick:
+                self._set_pick(pick)
+            else:
+                # An empty pick is no pick: back to the tagset before it.
+                self.clear_pick()
         self.schedule()
 
     # ---- tag operations (names follow dwm) ----------------------------
 
     def view(self, mask: int) -> None:
-        """Show the given tagset. Viewing the current one again goes back."""
+        """Show the given tagset. Viewing the current one again goes back.
+
+        While a pick is active, ``view(0)`` (``:tag-view prev``) leaves it and
+        restores exactly the tagset viewed before the pick; a real mask
+        replaces the pick and then behaves as usual.
+        """
         mask &= TAGMASK
+        if self.pick is not None:
+            if mask == 0:
+                # Leave the pick: back to the tagset viewed before it.
+                self.clear_pick()
+                return
+            self._set_pick(None)
         if mask == 0 or mask == self.seltags:
             # dwm: view(0) swaps to the previous tagset, as does re-viewing.
             mask = self._prev_seltags
@@ -435,13 +487,59 @@ class TileArea(QWidget):
         self.schedule()
 
     def toggleview(self, mask: int) -> None:
-        """Add or remove tags from the view, never leaving it empty."""
+        """Add or remove tags from the view, never leaving it empty.
+
+        A pick is transient, so toggling a tag leaves it and toggles the
+        tagset it replaced.
+        """
+        if self.pick is not None:
+            self._set_pick(None)
         new = self.seltags ^ (mask & TAGMASK)
         if new:
             self._prev_seltags = self.seltags
             self.seltags = new
             self.view_changed.emit(self.seltags)
             self.schedule()
+
+    # ---- pick view (transient, arbitrary set of tabs) --------------------
+
+    def set_pick(self, tabs: Sequence[QWidget]) -> None:
+        """Show exactly the given tabs, without touching any tab's tags.
+
+        Like dwm's scratchpad this is a transient view: the tagset on screen
+        before it is remembered, and ``view(0)`` (``:tag-view prev``) or an
+        empty ``tabs`` goes back to it. The pick has its own pertag layout
+        slot, so mfact/nmaster/layout changes made inside it stay there.
+        """
+        self._set_pick(list(tabs) if tabs else None)
+
+    def clear_pick(self) -> None:
+        """Leave the pick view and restore the tagset viewed before it."""
+        if self.pick is None:
+            return
+        return_tags = self._pick_return
+        self._set_pick(None)
+        if return_tags and return_tags != self.seltags:
+            # view() would swap back to the pick's tagset; restore instead.
+            self._prev_seltags = self.seltags
+            self.seltags = return_tags
+            self.view_changed.emit(self.seltags)
+        self.schedule()
+
+    def _set_pick(self, tabs: list[QWidget] | None) -> None:
+        """Enter, replace or leave the pick view; ``None`` leaves it."""
+        if tabs is not None:
+            # Keep tab-bar order; a tab may be named more than once.
+            wanted = set(tabs)
+            tabs = [t for t in self._tabs if t in wanted]
+            if self.pick is None:
+                # dwm view history: remember what to go back to.
+                self._pick_return = self.seltags
+        else:
+            self._pick_return = 0
+        self.pick = tabs
+        self.pick_changed.emit(len(tabs) if tabs is not None else 0)
+        self.schedule()
 
     # ---- layout parameters (runtime, per window) -----------------------
 
@@ -465,7 +563,13 @@ class TileArea(QWidget):
         self.schedule()
 
     def visible_tabs(self) -> list[QWidget]:
-        """The tabs on the selected tagset, in stack order."""
+        """The tabs on view, in stack order.
+
+        A pick shows exactly its tabs (in tab-bar order) whatever tags they
+        carry; otherwise the tabs on the selected tagset.
+        """
+        if self.pick is not None:
+            return list(self.pick)
         return [t for t in self._tabs
                 if is_visible(tags_of(t), self.seltags)]
 

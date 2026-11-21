@@ -128,6 +128,36 @@ class TestArrange:
             tiling.LayoutParams(layout='spiral')
 
 
+class TestCycle:
+
+    """cycle(): one step through a sequence, wrapping at both ends."""
+
+    seq = ['a', 'b', 'c']
+
+    def test_step_forward(self):
+        assert tiling.cycle(self.seq, 'a', +1) == 'b'
+        assert tiling.cycle(self.seq, 'b', +1) == 'c'
+
+    def test_step_forward_wraps(self):
+        assert tiling.cycle(self.seq, 'c', +1) == 'a'
+
+    def test_step_back_wraps(self):
+        assert tiling.cycle(self.seq, 'a', -1) == 'c'
+        assert tiling.cycle(self.seq, 'c', -1) == 'b'
+
+    def test_current_missing(self):
+        assert tiling.cycle(self.seq, 'z', +1) == 'a'
+        assert tiling.cycle(self.seq, 'z', -1) == 'c'
+
+    def test_single_element(self):
+        assert tiling.cycle(['a'], 'a', +1) == 'a'
+        assert tiling.cycle(['a'], 'a', -1) == 'a'
+
+    def test_empty(self):
+        assert tiling.cycle([], None, +1) is None
+        assert tiling.cycle([], None, -1) is None
+
+
 class _Tab(QWidget):
 
     """A widget with the .data.tags attribute the tile area reads."""
@@ -279,3 +309,131 @@ class TestTileArea:
         area.relayout()
         assert tabs[2].geometry() == area.rect()
         assert area.frames() == [(area.rect(), area.rect(), True)]
+
+
+class TestPick:
+
+    """The transient pick view: an arbitrary set of tabs, no tag changes."""
+
+    @pytest.fixture
+    def area(self, qtbot, config_stub):
+        config_stub.val.tabs.tiling.layout = 'tile'
+        config_stub.val.tabs.tiling.border = 0
+        area = tiling.TileArea()
+        qtbot.add_widget(area)
+        area.resize(1000, 600)
+        area.show()
+        return area
+
+    @pytest.fixture
+    def tabs(self, area):
+        tabs = [_Tab(0b1), _Tab(0b10), _Tab(0b11)]
+        for tab in tabs:
+            area.attach(tab)
+        area.set_tabs(tabs)
+        area.set_current(tabs[0])
+        area.relayout()
+        return tabs
+
+    def test_pick_shows_picked_tabs_only(self, area, tabs):
+        area.set_pick([tabs[1]])
+        area.relayout()
+        assert area.visible_tabs() == [tabs[1]]
+        assert tabs[1].isVisible()
+        assert not tabs[0].isVisible()
+        # No tab's tags were touched.
+        assert [tiling.tags_of(t) for t in tabs] == [0b1, 0b10, 0b11]
+
+    def test_pick_keeps_stack_order(self, area, tabs):
+        area.set_pick([tabs[2], tabs[0]])
+        assert area.visible_tabs() == [tabs[0], tabs[2]]
+
+    def test_pick_emits_pick_changed(self, area, tabs):
+        seen = []
+        area.pick_changed.connect(seen.append)
+        area.set_pick([tabs[0], tabs[1]])
+        area.clear_pick()
+        assert seen == [2, 0]
+
+    def test_pick_pertag_slot_is_isolated(self, area, tabs, config_stub):
+        """Layout changes inside a pick do not leak into a tag slot."""
+        assert area.curtag() == 1
+        area.set_mfact(0.3)
+        area.set_layout('monocle')
+        tag_params = area.params
+
+        area.set_pick([tabs[0], tabs[1]])
+        assert area.curtag() == tiling.PICK_SLOT
+        # The pick starts out tiled whatever the tag slot holds.
+        assert area.params.layout == 'tile'
+        assert area.params.mfact != 0.3
+        area.set_layout('tile')
+        area.set_mfact(0.7)
+        area.set_nmaster(2)
+
+        area.clear_pick()
+        assert area.params is tag_params
+        assert area.params.layout == 'monocle'
+        assert area.params.mfact == 0.3
+        assert area.params.nmaster == tag_params.nmaster
+
+    def test_view_zero_restores_pre_pick_tagset(self, area, tabs):
+        area.view(0b11)
+        area.set_pick([tabs[0]])
+        assert area.pick == [tabs[0]]
+        area.view(0)
+        assert area.pick is None
+        assert area.seltags == 0b11
+
+    def test_clear_pick_restores_pre_pick_tagset(self, area, tabs):
+        area.view(0b10)
+        area.set_pick([tabs[2]])
+        area.clear_pick()
+        assert area.pick is None
+        assert area.seltags == 0b10
+
+    def test_view_mask_clears_pick(self, area, tabs):
+        area.set_pick([tabs[0]])
+        area.view(tiling.tag_mask(2))
+        assert area.pick is None
+        assert area.seltags == 0b10
+        assert area.visible_tabs() == [tabs[1], tabs[2]]
+
+    def test_toggleview_clears_pick(self, area, tabs):
+        area.set_pick([tabs[0]])
+        area.toggleview(tiling.tag_mask(2))
+        assert area.pick is None
+        assert area.seltags == 0b11
+
+    def test_detach_shrinks_pick(self, area, tabs):
+        area.set_pick([tabs[0], tabs[1]])
+        area.detach(tabs[1])
+        assert area.pick == [tabs[0]]
+        assert area.visible_tabs() == [tabs[0]]
+
+    def test_detach_last_clears_pick(self, area, tabs):
+        area.view(0b10)
+        area.set_pick([tabs[1]])
+        area.detach(tabs[1])
+        assert area.pick is None
+        assert area.seltags == 0b10
+
+    def test_empty_set_pick_clears(self, area, tabs):
+        area.view(0b10)
+        area.set_pick([tabs[1]])
+        area.set_pick([])
+        assert area.pick is None
+        assert area.seltags == 0b10
+
+    def test_clear_pick_without_pick(self, area, tabs):
+        area.clear_pick()
+        assert area.pick is None
+        assert area.seltags == 0b1
+
+    def test_view_zero_without_pick_is_dwm_prev(self, area, tabs):
+        """With no pick, view(0) still swaps to the previous tagset."""
+        area.view(0b10)
+        area.view(0b100)
+        area.view(0)
+        assert area.pick is None
+        assert area.seltags == 0b10
