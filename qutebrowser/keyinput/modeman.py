@@ -24,8 +24,9 @@ from qutebrowser.misc import objects
 INPUT_MODES = [usertypes.KeyMode.insert, usertypes.KeyMode.passthrough]
 PROMPT_MODES = [usertypes.KeyMode.prompt, usertypes.KeyMode.yesno]
 #: Modes that end a detour from tile mode instead of being one: entering
-#: them forgets that leaving should return to tile mode.
-NOT_TILE_DETOURS = [usertypes.KeyMode.tile, usertypes.KeyMode.passthrough]
+#: them forgets that leaving should return to tile mode. Everything else,
+#: passthrough (ENGAGE) included, is a detour returning to tile.
+NOT_TILE_DETOURS = [usertypes.KeyMode.tile]
 
 # FIXME:mypy TypedDict?
 ParserDictType: TypeAlias = MutableMapping[usertypes.KeyMode, basekeyparser.BaseKeyParser]

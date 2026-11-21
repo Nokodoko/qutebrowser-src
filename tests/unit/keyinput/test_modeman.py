@@ -98,11 +98,36 @@ def test_prompt_over_insert_from_tile(tile_modeman):
     assert tile_modeman.mode == usertypes.KeyMode.tile
 
 
-def test_passthrough_from_tile_does_not_return(tile_modeman):
-    """Engaging is not a detour: leaving passthrough lands in normal."""
+def test_passthrough_from_tile_returns_to_tile(tile_modeman):
+    """Engaging is a detour like insert: leaving passthrough lands in tile."""
     tile_modeman.enter(usertypes.KeyMode.tile)
     tile_modeman.enter(usertypes.KeyMode.passthrough)
     tile_modeman.leave(usertypes.KeyMode.passthrough)
+    assert tile_modeman.mode == usertypes.KeyMode.tile
+
+
+def test_passthrough_from_normal_returns_to_normal(tile_modeman):
+    """Without tile mode there is nothing to return to."""
+    tile_modeman.enter(usertypes.KeyMode.passthrough)
+    tile_modeman.leave(usertypes.KeyMode.passthrough)
+    assert tile_modeman.mode == usertypes.KeyMode.normal
+
+
+def test_passthrough_over_insert_from_tile(tile_modeman):
+    """tile -> insert -> passthrough is still one detour ending in tile."""
+    tile_modeman.enter(usertypes.KeyMode.tile)
+    tile_modeman.enter(usertypes.KeyMode.insert)
+    tile_modeman.enter(usertypes.KeyMode.passthrough)
+    tile_modeman.leave(usertypes.KeyMode.passthrough)
+    assert tile_modeman.mode == usertypes.KeyMode.tile
+
+
+def test_tile_over_passthrough_clears_detour(tile_modeman):
+    """Entering tile ends the detour, so leaving tile goes to normal."""
+    tile_modeman.enter(usertypes.KeyMode.tile)
+    tile_modeman.enter(usertypes.KeyMode.passthrough)
+    tile_modeman.enter(usertypes.KeyMode.tile)
+    tile_modeman.leave(usertypes.KeyMode.tile)
     assert tile_modeman.mode == usertypes.KeyMode.normal
 
 
