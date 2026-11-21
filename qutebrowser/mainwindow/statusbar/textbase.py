@@ -8,6 +8,7 @@ from qutebrowser.qt.core import Qt, QEvent, QRect, pyqtProperty
 from qutebrowser.qt.widgets import QLabel, QSizePolicy
 from qutebrowser.qt.gui import QPainter, QColor
 
+from qutebrowser.config import config
 from qutebrowser.utils import qtutils, utils
 
 
@@ -20,6 +21,25 @@ def segment_padding(widget, color):
     if not color.isValid() or color.alpha() == 0:
         return 0
     return widget.fontMetrics().horizontalAdvance(' ')
+
+
+def paint_segment(widget, segment, color):
+    """Fill a statusbar segment on widget, rounded by statusbar.segment_radius.
+
+    The radius is capped at half the segment's height, so a large value gives
+    a full pill and 0 the square Vim-statusline block.
+    """
+    segment = segment.intersected(widget.rect())
+    radius = min(config.val.statusbar.segment_radius, segment.height() // 2)
+    painter = QPainter(widget)
+    if radius > 0:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(segment, radius, radius)
+    else:
+        painter.fillRect(segment, color)
+    painter.end()
 
 
 class TextBase(QLabel):
@@ -114,9 +134,7 @@ class TextBase(QLabel):
             self.contentsRect(), int(self.alignment()), text)
         segment = QRect(text_rect.left() - padding, 0,
                         text_rect.width() + 2 * padding, self.height())
-        painter = QPainter(self)
-        painter.fillRect(segment.intersected(self.rect()), self._segment_bg)
-        painter.end()
+        paint_segment(self, segment, self._segment_bg)
 
     def paintEvent(self, e):
         """Override QLabel::paintEvent to draw elided text.

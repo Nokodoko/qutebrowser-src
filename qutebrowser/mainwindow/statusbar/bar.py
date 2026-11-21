@@ -285,6 +285,9 @@ class StatusBar(QWidget):
             self._set_hbox_padding()
         elif option == 'statusbar.widgets':
             self._draw_widgets()
+        elif option == 'statusbar.segment_radius':
+            for widget in self.findChildren(QWidget):
+                widget.update()
 
     def _draw_widgets(self):
         """Draw statusbar widgets."""

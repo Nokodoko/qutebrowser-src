@@ -2324,6 +2324,18 @@ statusbar.segments:
     is shown as the bare mode name (e.g. `INSERT`). The mode background colors
     must be plain colors (no gradients) for the segments to be painted.
 
+statusbar.segment_radius:
+  type:
+    name: Int
+    minval: 0
+  default: 0
+  desc: >-
+    Corner radius (in pixels) of the statusbar segments painted with
+    `statusbar.segments`.
+
+    0 paints square blocks. The radius is capped at half the segment's height,
+    so a large value gives full pills.
+
 statusbar.widgets:
   type:
     name: List

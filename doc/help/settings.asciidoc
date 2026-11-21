@@ -350,6 +350,7 @@
 |<<statusbar.autohide,statusbar.autohide>>|Hide the statusbar after this many milliseconds without a mode change.
 |<<statusbar.padding,statusbar.padding>>|Padding (in pixels) for the statusbar.
 |<<statusbar.position,statusbar.position>>|Position of the status bar.
+|<<statusbar.segment_radius,statusbar.segment_radius>>|Corner radius (in pixels) of the statusbar segments painted with `statusbar.segments`.
 |<<statusbar.segments,statusbar.segments>>|Paint the mode background color only behind the text of each statusbar widget, like a Vim statusline, instead of across the whole bar.
 |<<statusbar.show,statusbar.show>>|When to show the statusbar.
 |<<statusbar.widgets,statusbar.widgets>>|List of widgets displayed in the statusbar.
@@ -4599,6 +4600,15 @@ Valid values:
  * +bottom+
 
 Default: +pass:[bottom]+
+
+[[statusbar.segment_radius]]
+=== statusbar.segment_radius
+Corner radius (in pixels) of the statusbar segments painted with `statusbar.segments`.
+0 paints square blocks. The radius is capped at half the segment's height, so a large value gives full pills.
+
+Type: <<types,Int>>
+
+Default: +pass:[0]+
 
 [[statusbar.segments]]
 === statusbar.segments

@@ -9,7 +9,7 @@ from typing import cast
 from qutebrowser.qt import machinery
 from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, pyqtProperty, Qt, QSize,
                                  QEvent, QRect)
-from qutebrowser.qt.gui import QKeyEvent, QColor, QPainter, QPaintEvent
+from qutebrowser.qt.gui import QKeyEvent, QColor, QPaintEvent
 from qutebrowser.qt.widgets import (QSizePolicy, QWidget, QStyle,
                                     QStyleOptionFrame)
 
@@ -124,9 +124,7 @@ class Command(misc.CommandLineEdit):
         text_width = self.fontMetrics().horizontalAdvance(self.text())
         segment = QRect(text_left - padding, 0,
                         text_width + 2 * padding, self.height())
-        painter = QPainter(self)
-        painter.fillRect(segment.intersected(self.rect()), self._segment_bg)
-        painter.end()
+        textbase.paint_segment(self, segment, self._segment_bg)
 
     def paintEvent(self, e: QPaintEvent | None) -> None:
         """Extend QLineEdit::paintEvent to paint the segment behind the text."""

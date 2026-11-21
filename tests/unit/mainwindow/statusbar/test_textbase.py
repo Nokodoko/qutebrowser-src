@@ -105,7 +105,7 @@ def test_segment_off(qtbot):
     Qt.TextElideMode.ElideRight,
     Qt.TextElideMode.ElideNone,
 ])
-def test_segment_painted_behind_text_only(qtbot, elidemode):
+def test_segment_painted_behind_text_only(qtbot, config_stub, elidemode):
     """The segment covers the padded text but not the rest of the label."""
     label = _segment_label(qtbot, '#ff0000', elidemode=elidemode)
     assert label.segmentBg == QColor('#ff0000')
@@ -120,6 +120,18 @@ def test_segment_painted_behind_text_only(qtbot, elidemode):
     assert image.pixelColor(image.width() - 1, middle) != QColor('#ff0000')
 
 
+def test_segment_rounded(qtbot, config_stub):
+    """statusbar.segment_radius rounds the corners and keeps the body filled."""
+    config_stub.val.statusbar.segment_radius = 8
+    label = _segment_label(qtbot, '#ff0000')
+
+    image = label.grab().toImage()
+    middle = image.height() // 2
+    assert image.pixelColor(0, middle) == QColor('#ff0000')
+    assert image.pixelColor(0, 0) != QColor('#ff0000')
+    assert image.pixelColor(0, image.height() - 1) != QColor('#ff0000')
+
+
 @pytest.mark.parametrize('elidemode', [
     Qt.TextElideMode.ElideRight,
     Qt.TextElideMode.ElideNone,
@@ -129,7 +141,8 @@ def test_segment_painted_behind_text_only(qtbot, elidemode):
     ('foo', 1),
     ('foo', 0),
 ])
-def test_segment_paint_degenerate_size(qtbot, elidemode, text, width):
+def test_segment_paint_degenerate_size(qtbot, config_stub, elidemode, text,
+                                       width):
     """Painting an empty or squeezed segment label must not raise.
 
     The segment padding is reserved as contents margins, so an empty label is
