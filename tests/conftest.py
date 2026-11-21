@@ -9,6 +9,12 @@ import pathlib
 import sys
 import ssl
 
+# Fork: the suite builds real widgets, which open as windows on a live desktop
+# session. Render offscreen unless QUTE_TEST_LIVE_DISPLAY=1 asks for the real
+# display. Must run before anything imports Qt.
+if os.environ.get("QUTE_TEST_LIVE_DISPLAY") != "1":
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 import pytest
 import hypothesis
 import hypothesis.database
