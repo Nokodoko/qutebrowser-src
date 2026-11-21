@@ -49,6 +49,7 @@ possible to run or bind multiple commands by separating them with `;;`.
 |<<cmd-repeat-last,cmd-repeat-last>>|Repeat the last executed command.
 |<<cmd-run-with-count,cmd-run-with-count>>|Run a command with the given count.
 |<<cmd-set-text,cmd-set-text>>|Preset the statusbar to some text.
+|<<completion-item-mark,completion-item-mark>>|Mark the selected tab in the completion, or just move the focus.
 |<<config-clear,config-clear>>|Set all settings back to their default.
 |<<config-cycle,config-cycle>>|Cycle an option between multiple values.
 |<<config-dict-add,config-dict-add>>|Add a key/value pair to a dictionary option.
@@ -396,6 +397,20 @@ Preset the statusbar to some text.
 
 ==== count
 The count if given.
+
+==== note
+* This command does not split arguments after the last argument and handles quotes literally.
+
+[[completion-item-mark]]
+=== completion-item-mark
+Syntax: +:completion-item-mark 'which'+
+
+Mark the selected tab in the completion, or just move the focus.
+
+On the `:tab-select` completion this toggles a mark on the selected tab and moves the focus along; `:` then runs `:tab-pick` with all the marked tabs. Anywhere else this is the same as `:completion-item-focus`.
+
+==== positional arguments
+* +'which'+: 'next' or 'prev'.
 
 ==== note
 * This command does not split arguments after the last argument and handles quotes literally.
@@ -1945,6 +1960,8 @@ How many steps to zoom out.
 Syntax: +:command-accept [*--rapid*]+
 
 Execute the command currently in the commandline.
+
+With tabs marked in the completion, the marked tabs are run instead of the typed text (see :completion-item-mark).
 
 ==== optional arguments
 * +*-r*+, +*--rapid*+: Run the command without closing or clearing the command bar.

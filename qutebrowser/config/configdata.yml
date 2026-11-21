@@ -4306,8 +4306,8 @@ bindings.default:
       <Ctrl-N>: command-history-next
       <Up>: completion-item-focus --history prev
       <Down>: completion-item-focus --history next
-      <Shift-Tab>: completion-item-focus prev
-      <Tab>: completion-item-focus next
+      <Shift-Tab>: completion-item-mark prev
+      <Tab>: completion-item-mark next
       <Ctrl-Tab>: completion-item-focus next-category
       <Ctrl-Shift-Tab>: completion-item-focus prev-category
       <PgDown>: completion-item-focus next-page

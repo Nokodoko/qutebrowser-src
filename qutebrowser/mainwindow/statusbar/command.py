@@ -4,7 +4,7 @@
 
 """The commandline in the statusbar."""
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from qutebrowser.qt import machinery
 from qutebrowser.qt.core import (pyqtSignal, pyqtSlot, pyqtProperty, Qt, QSize,
@@ -20,6 +20,9 @@ from qutebrowser.misc import miscwidgets as misc
 from qutebrowser.mainwindow.statusbar import textbase
 from qutebrowser.utils import usertypes, log, objreg, message, utils
 from qutebrowser.config import config
+
+if TYPE_CHECKING:
+    from qutebrowser.completion import completionwidget
 
 
 # QLineEditPrivate::horizontalMargin: the gap QLineEdit leaves between its
@@ -38,6 +41,8 @@ class Command(misc.CommandLineEdit):
     Attributes:
         _win_id: The window ID this widget is associated with.
         _segment_bg: The segment background color.
+        _completion: The completion widget of this window as handed over by
+                     MainWindow (see set_completion), or None.
 
     Signals:
         got_cmd: Emitted when a command is triggered by the user.
@@ -65,6 +70,7 @@ class Command(misc.CommandLineEdit):
         super().__init__(parent)
         self._win_id = win_id
         self._segment_bg = QColor()
+        self._completion = None
         if not private:
             command_history = objreg.get('command-history')
             self.history.history = command_history.data
@@ -236,17 +242,53 @@ class Command(misc.CommandLineEdit):
         if item:
             self.cmd_set_text(item)
 
+    def set_completion(
+            self,
+            completion: 'completionwidget.CompletionView | None') -> None:
+        """Hand the window's completion widget to the commandline.
+
+        The commandline needs it to ask whether the completion holds marks
+        (see _mark_prefix). MainWindow wires this up right after creating the
+        completion; going through the registry is not an option there, as
+        'completion' is registered command_only and objreg raises
+        CommandOnlyError for any lookup which does not say otherwise.
+
+        Args:
+            completion: The window's CompletionView, or None.
+        """
+        self._completion = completion
+
+    def _mark_prefix(self) -> str | None:
+        """The command the completion marks want run, if any.
+
+        With tabs marked on the `:tab-select` completion (see
+        :completion-item-mark), the marks are what the user means: `:` runs
+        `:tab-pick` with them instead of whatever is typed in the commandline.
+
+        Return:
+            The command string (without prefix), or None.
+        """
+        if self._completion is None:
+            # No completion wired up to this commandline (yet).
+            return None
+        return self._completion.mark_prefix()
+
     @cmdutils.register(instance='status-command',
                        modes=[usertypes.KeyMode.command], scope='window')
     def command_accept(self, rapid: bool = False) -> None:
         """Execute the command currently in the commandline.
 
+        With tabs marked in the completion, the marked tabs are run instead of
+        the typed text (see :completion-item-mark).
+
         Args:
             rapid: Run the command without closing or clearing the command bar.
         """
-        was_search = self._handle_search()
+        # Read the marks before leaving command mode, which clears them.
+        marked = self._mark_prefix()
+        was_search = False if marked else self._handle_search()
 
-        text = self.text()
+        text = ':' + marked if marked else self.text()
         if not (self.prefix() == ':' and text[1:].startswith(' ')):
             self.history.append(text)
 

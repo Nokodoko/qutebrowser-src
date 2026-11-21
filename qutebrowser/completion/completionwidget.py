@@ -50,6 +50,10 @@ class CompletionView(QTreeView):
     Signals:
         update_geometry: Emitted when the completion should be resized.
         selection_changed: Emitted when the completion item selection changes.
+        pattern_reset: Emitted when the completer must blank the token under
+                       the cursor and re-filter with the empty pattern, so the
+                       whole list comes back after a mark (see
+                       `completion_item_mark`).
     """
 
     # Drawing the item foreground will be done by CompletionItemDelegate, so we
@@ -121,6 +125,7 @@ class CompletionView(QTreeView):
 
     update_geometry = pyqtSignal()
     selection_changed = pyqtSignal(str)
+    pattern_reset = pyqtSignal()
 
     def __init__(self, *,
                  cmd: 'command.Command',
@@ -135,6 +140,8 @@ class CompletionView(QTreeView):
         self._previewing = False
         self._backdrop = _Backdrop(self)
         self._frost = glass.Frost(self, self._backdrop.update)
+        self._marked: list[str] = []
+        self._marking = False
         self._preview = tabpreview.TabPreview(self)
 
         config.instance.changed.connect(self._on_config_changed)
@@ -182,6 +189,142 @@ class CompletionView(QTreeView):
         model = self.selectionModel()
         assert model is not None
         return model
+
+    # Marks: picking several tabs at once from the `:tab-select` completion
+
+    def _tab_model(self) -> completionmodel.CompletionModel | None:
+        """Return the model being completed if it is a pickable tab model.
+
+        A pickable tab model is a tab completion model whose first column
+        holds the [win_id/]index of a tab, i.e. the model behind
+        `:tab-select`. Any other model returns None, and marking then behaves
+        exactly like plain focus.
+        """
+        if not self._active:
+            return None
+        model = self.model()
+        if isinstance(model, completionmodel.CompletionModel) and \
+                model.tab_indices:
+            return model
+        return None
+
+    def marked(self) -> list[str]:
+        """Return the marked tab indices, in the order they were marked."""
+        return list(self._marked)
+
+    def is_marked(self, tab_index: str) -> bool:
+        """Whether the tab with the given [win_id/]index is marked."""
+        return tab_index in self._marked
+
+    def mark_prefix(self) -> str | None:
+        """Return the command to run instead of the typed one, if marked.
+
+        Called by the completer before it fills the commandline with the
+        completion under the cursor, and by `:command-accept` before it runs
+        what is in the commandline. With marks, both are replaced by
+        `:tab-pick` with the marked indices in mark order, so the typed
+        pattern and the marks never fight over the commandline.
+
+        `:tab-pick` takes no flags, so nothing of the typed command carries
+        over.
+
+        Returns:
+            The command to run instead of the one in the commandline, or None
+            to run that as is.
+        """
+        if not self._marked or self._tab_model() is None:
+            return None
+        return 'tab-pick ' + ' '.join(self._marked)
+
+    def keeps_pattern(self) -> bool:
+        """Whether a selection change must leave the commandline alone.
+
+        On the `:tab-select` completion the text in the commandline is the
+        pattern the list is filtered by, not the item under the cursor, so
+        marking must never overwrite what the user typed - whether or not a
+        mark exists at that moment: the very first mark moves the focus before
+        anything is marked, and unmarking the last mark moves it after none is
+        marked; both would otherwise replace the pattern with the tab index
+        under the cursor and destroy the filter.
+
+        So: on a pickable tab model, any selection change happening inside a
+        `:completion-item-mark` call, or while anything is marked, keeps the
+        pattern. Plain `:completion-item-focus` with no marks, and any model
+        which is not a pickable tab model, keep the stock behaviour of filling
+        the commandline with the item under the cursor.
+        """
+        if self._tab_model() is None:
+            return False
+        return bool(self._marked) or self._marking
+
+    def clear_marks(self) -> None:
+        """Forget all marks and repaint the rows."""
+        if self._marked:
+            self._marked = []
+            self.viewport().update()
+
+    def _toggle_mark(self, index) -> None:
+        """Toggle the mark on the row at the given index.
+
+        Marks are keyed by the tab index in the first column rather than by
+        row, so they survive the model being re-filtered while the user keeps
+        typing.
+        """
+        # The selection can be on any column, and the view permutes the
+        # columns of a tab model (see _reorder_columns), so walk the row back
+        # to its first column and ask the model for its data.
+        while index.column() > 0:
+            index = index.siblingAtColumn(index.column() - 1)
+        tab_index = self._model().data(index)
+        if not tab_index:
+            return
+        if tab_index in self._marked:
+            self._marked.remove(tab_index)
+        else:
+            self._marked.append(tab_index)
+        log.completion.debug("completion mark {}: {}".format(
+            'on' if tab_index in self._marked else 'off', tab_index))
+        self.viewport().update()
+
+    @cmdutils.register(instance='completion', maxsplit=0, scope='window')
+    @cmdutils.argument('which', choices=['next', 'prev'])
+    def completion_item_mark(self, which: str) -> None:
+        """Mark the selected tab in the completion, or just move the focus.
+
+        On the `:tab-select` completion this toggles a mark on the selected
+        tab and moves the focus along; `:` then runs `:tab-pick` with all the
+        marked tabs. Anywhere else this is the same as `:completion-item-focus`.
+
+        Args:
+            which: 'next' or 'prev'.
+        """
+        if self._tab_model() is None:
+            self.completion_item_focus(which)
+            return
+        # Whether the filter had singled the marked row out, and so the
+        # pattern is worth clearing once it is marked.
+        single_match = self._model().count() == 1
+        # The moves below change the selection, which would otherwise fill the
+        # commandline with the tab index under the cursor and throw away the
+        # pattern the user typed (see keeps_pattern).
+        self._marking = True
+        try:
+            # The first move lands on the category header, which carries no tab
+            # index; move onto the first item and mark that instead.
+            if not self.currentIndex().parent().isValid():
+                self.completion_item_focus(which)
+            self._toggle_mark(self.currentIndex())
+            if self.currentIndex().parent().isValid():
+                # Only advance once a row is actually marked, so a Tab on an
+                # empty list cannot walk past the end.
+                self.completion_item_focus(which)
+        finally:
+            self._marking = False
+        # A filter that left exactly one tab has done its job: hand the empty
+        # pattern back so the user can search for the next tab without first
+        # deleting anything. The marks are keyed by tab index, so they survive.
+        if single_match and self._marked:
+            self.pattern_reset.emit()
 
     @pyqtSlot(str)
     def _on_config_changed(self, option):
@@ -627,7 +770,11 @@ class CompletionView(QTreeView):
         if count == 0:
             self.hide()
         elif count == 1 and config.val.completion.quick:
-            self.hide()
+            # Quick-completing a single match hides the list, unless the user
+            # is marking tabs: then the list is how they see what is marked
+            # and what is left to pick, so it stays up.
+            if not self.keeps_pattern():
+                self.hide()
         elif config.val.completion.show == 'auto':
             self.show()
 
@@ -646,6 +793,10 @@ class CompletionView(QTreeView):
         if model is None:
             self._active = False
             self._set_mode(glassy=False, previewing=False)
+            # The marks belong to the tab list they were made on; without
+            # this, marks left over from `:tab-select` would hijack the next
+            # completion's Enter (see mark_prefix).
+            self.clear_marks()
             self.hide()
             return
 
@@ -696,6 +847,7 @@ class CompletionView(QTreeView):
     def on_clear_completion_selection(self):
         """Clear the selection model when an item is activated."""
         self.hide()
+        self.clear_marks()
         selmod = self.selectionModel()
         if selmod is not None:
             selmod.clearSelection()

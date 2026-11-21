@@ -247,12 +247,39 @@ class CompletionItemDelegate(QStyledItemDelegate):
                 else:
                     color = config.val.colors.completion.match.fg
                 _Highlighter(self._doc, pattern, color)
-            self._doc.setPlainText(self._opt.text)
+            mark = self._mark_html(index)
+            if mark:
+                # A marked tab gets a leading dot; setHtml rather than
+                # setPlainText so it can be coloured.
+                self._doc.setHtml(mark + html.escape(self._opt.text))
+            else:
+                self._doc.setPlainText(self._opt.text)
         else:
             self._doc.setHtml(
                 '<span style="font: {};">{}</span>'.format(
                     html.escape(config.val.fonts.completion.category),
                     html.escape(self._opt.text)))
+
+    def _mark_html(self, index) -> str:
+        """Return the leading marker for a marked row, or an empty string.
+
+        Args:
+            index: The QModelIndex of the item to draw.
+        """
+        view = self.parent()
+        is_marked = getattr(view, 'is_marked', None)
+        if is_marked is None or not index.parent().isValid():
+            # Not the completion view (a stub in tests), or a category header.
+            return ''
+        # The columns are permuted in the view (see CompletionView), so walk
+        # the row back to its first column and ask the model for its data.
+        while index.column() > 0:
+            index = index.siblingAtColumn(index.column() - 1)
+        tab_index = index.model().data(index)
+        if not tab_index or not is_marked(tab_index):
+            return ''
+        return '<span style="color:{}">\u25cf&#160;</span>'.format(
+            config.val.colors.glass.accent.name())
 
     def _draw_focus_rect(self):
         """Draw the focus rectangle of an ItemViewItem."""

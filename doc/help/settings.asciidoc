@@ -602,8 +602,8 @@ Default:
 * +pass:[&lt;PgUp&gt;]+: +pass:[completion-item-focus prev-page]+
 * +pass:[&lt;Return&gt;]+: +pass:[command-accept]+
 * +pass:[&lt;Shift-Delete&gt;]+: +pass:[completion-item-del]+
-* +pass:[&lt;Shift-Tab&gt;]+: +pass:[completion-item-focus prev]+
-* +pass:[&lt;Tab&gt;]+: +pass:[completion-item-focus next]+
+* +pass:[&lt;Shift-Tab&gt;]+: +pass:[completion-item-mark prev]+
+* +pass:[&lt;Tab&gt;]+: +pass:[completion-item-mark next]+
 * +pass:[&lt;Up&gt;]+: +pass:[completion-item-focus --history prev]+
 - +pass:[hint]+:
 

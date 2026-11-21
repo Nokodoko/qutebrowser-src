@@ -169,6 +169,11 @@ class Completer(QObject):
         """
         if text is None:
             return
+        if self._completion().keeps_pattern():
+            # The user is marking tabs on the `:tab-select` completion: keep
+            # the pattern they typed (and the completion it drives) instead of
+            # filling in the tab under the cursor.
+            return
         before, center, after = self._partition()
         log.completion.debug("Changing {} to '{}'".format(center, text))
         try:
@@ -190,6 +195,25 @@ class Completer(QObject):
                                             immediate=True)
         else:
             self._change_completed_part(text, before, after)
+
+    @pyqtSlot()
+    def reset_completed_part(self):
+        """Blank the token under the cursor and show the whole list again.
+
+        Called when a mark was made on a filter that left exactly one match
+        (see `CompletionView.pattern_reset`): the pattern has served its
+        purpose, and clearing it lets the user type the next name without
+        deleting anything first. The command and its flags stay put.
+
+        This belongs here rather than in the view because partitioning the
+        commandline is the completer's job. `_change_completed_part` blocks the
+        commandline update on purpose, so the model has to be re-filtered
+        explicitly.
+        """
+        before, center, after = self._partition()
+        log.completion.debug("resetting completed part '{}'".format(center))
+        self._change_completed_part('', before, after)
+        self._completion().set_pattern('')
 
     @pyqtSlot()
     def schedule_completion_update(self):

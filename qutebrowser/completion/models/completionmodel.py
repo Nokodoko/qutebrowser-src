@@ -33,14 +33,18 @@ class CompletionModel(QAbstractItemModel):
                        completion view.
         tab_preview: Whether items are [win_id/]tab indices the view can
                      preview.
+        tab_indices: Whether the first column of every item is a
+                     [win_id/]tab index, so the user can pick several of them
+                     at once with marks (see :completion-item-mark).
         _categories: The sub-categories.
     """
 
     def __init__(self, *, column_widths=(30, 70, 0), tab_preview=False,
-                 parent=None):
+                 tab_indices=False, parent=None):
         super().__init__(parent)
         self.column_widths = column_widths
         self.tab_preview = tab_preview
+        self.tab_indices = tab_indices
         self._categories: MutableSequence[BaseCategory] = []
 
     def _cat_from_idx(self, index: QModelIndex) -> BaseCategory | None:

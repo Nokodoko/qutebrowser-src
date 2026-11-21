@@ -421,6 +421,13 @@ class MainWindow(QWidget):
                                             parent=self._completion)
         self._completion.selection_changed.connect(
             completer_obj.on_selection_changed)
+        # Marking the only tab a filter left behind hands the empty pattern
+        # back, so the whole list is there again for the next search.
+        self._completion.pattern_reset.connect(
+            completer_obj.reset_completed_part)
+        # The commandline asks the completion about marks when the command is
+        # accepted, and it cannot look it up itself: registered command_only.
+        self.status.cmd.set_completion(self._completion)
         objreg.register('completion', self._completion, scope='window',
                         window=self.win_id, command_only=True)
         self._add_overlay(self._completion, self._completion.update_geometry)

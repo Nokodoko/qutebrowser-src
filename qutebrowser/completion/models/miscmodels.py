@@ -88,7 +88,8 @@ def session(*, info=None):
     return model
 
 
-def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=None):
+def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=None,
+          pickable=False):
     """Helper to get the completion model for tabs/other_tabs.
 
     Args:
@@ -96,6 +97,9 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
                        Should return True for all included windows.
         add_win_id: Whether to add the window ID to the completion items.
         cur_win_id: Window ID to be passed from info.win_id
+        pickable: Whether several items can be picked at once (see
+                  :completion-item-mark), which needs the window ID in the
+                  items so they stay identifiable across windows.
     """
     def delete_tab(data):
         """Close the selected tab."""
@@ -116,7 +120,8 @@ def _tabs(*, win_id_filter=lambda _win_id: True, add_win_id=True, cur_win_id=Non
     else:
         column_widths = (6, 40, 46, 8)
     model = completionmodel.CompletionModel(column_widths=column_widths,
-                                            tab_preview=True)
+                                            tab_preview=True,
+                                            tab_indices=pickable)
 
     tabs_are_windows = config.val.tabs.tabs_are_windows
     # list storing all single-tabbed windows when tabs_are_windows
@@ -167,7 +172,7 @@ def tabs(*, info=None):
     Used for the tab-select command (and others).
     """
     utils.unused(info)
-    return _tabs()
+    return _tabs(pickable=True)
 
 
 def other_tabs(*, info):
