@@ -102,6 +102,8 @@
 |<<colors.statusbar.segments.fg,colors.statusbar.segments.fg>>|Foreground color of the command line text when `statusbar.segments` is enabled.
 |<<colors.statusbar.segments.mode.bg,colors.statusbar.segments.mode.bg>>|Background color of the MODE segment (the NORMAL / ENGAGE / TILE label) when `statusbar.segments` is enabled, in every mode. Null means the segment takes the current mode's own color like every other widget.
 |<<colors.statusbar.segments.mode.fg,colors.statusbar.segments.mode.fg>>|Foreground color of the mode segment when `colors.statusbar.segments.mode.bg` is set. Null means the mode's own foreground.
+|<<colors.statusbar.segments.text.bg,colors.statusbar.segments.text.bg>>|Background color of the `text:` widget segments when `statusbar.segments` is enabled, in every mode. Null means they take the current mode's own color like every other widget.
+|<<colors.statusbar.segments.text.fg,colors.statusbar.segments.text.fg>>|Foreground color of the `text:` widget segments when `colors.statusbar.segments.text.bg` is set. Null means the mode's own foreground.
 |<<colors.statusbar.url.error.fg,colors.statusbar.url.error.fg>>|Foreground color of the URL in the statusbar on error.
 |<<colors.statusbar.url.fg,colors.statusbar.url.fg>>|Default foreground color of the URL in the statusbar.
 |<<colors.statusbar.url.hover.fg,colors.statusbar.url.hover.fg>>|Foreground color of the URL in the statusbar for hovered links.
@@ -1627,6 +1629,22 @@ Default: empty
 [[colors.statusbar.segments.mode.fg]]
 === colors.statusbar.segments.mode.fg
 Foreground color of the mode segment when `colors.statusbar.segments.mode.bg` is set. Null means the mode's own foreground.
+
+Type: <<types,QssColor>>
+
+Default: empty
+
+[[colors.statusbar.segments.text.bg]]
+=== colors.statusbar.segments.text.bg
+Background color of the `text:` widget segments when `statusbar.segments` is enabled, in every mode. Null means they take the current mode's own color like every other widget.
+
+Type: <<types,QssColor>>
+
+Default: empty
+
+[[colors.statusbar.segments.text.fg]]
+=== colors.statusbar.segments.text.fg
+Foreground color of the `text:` widget segments when `colors.statusbar.segments.text.bg` is set. Null means the mode's own foreground.
 
 Type: <<types,QssColor>>
 

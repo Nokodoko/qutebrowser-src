@@ -153,6 +153,13 @@ def _generate_stylesheet():
             {% if conf.colors.statusbar.segments.mode.fg %}color: {{ conf.colors.statusbar.segments.mode.fg }};{% endif %}
         }
         {% endif %}
+        {% if conf.statusbar.segments and conf.colors.statusbar.segments.text.bg %}
+        QWidget#StatusBar QLabel#TextSegment,
+        QWidget#StatusBar[color_flags~="private"] QLabel#TextSegment {
+            qproperty-segmentBg: {{ conf.colors.statusbar.segments.text.bg }};
+            {% if conf.colors.statusbar.segments.text.fg %}color: {{ conf.colors.statusbar.segments.text.fg }};{% endif %}
+        }
+        {% endif %}
     """
     return qss
 
@@ -267,6 +274,9 @@ class StatusBar(QWidget):
             return self.search_match
         elif key.startswith('text:'):
             new_text_widget = textbase.TextBase()
+            # Selected by name in the stylesheet
+            # (colors.statusbar.segments.text.*)
+            new_text_widget.setObjectName('TextSegment')
             self._text_widgets.append(new_text_widget)
             return new_text_widget
         elif key.startswith('clock:') or key == 'clock':

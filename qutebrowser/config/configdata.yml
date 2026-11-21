@@ -3532,6 +3532,26 @@ colors.statusbar.segments.mode.fg:
     `colors.statusbar.segments.mode.bg` is set. Null means the mode's own
     foreground.
 
+colors.statusbar.segments.text.bg:
+  type:
+    name: QssColor
+    none_ok: true
+  default: null
+  desc: >-
+    Background color of the `text:` widget segments when `statusbar.segments`
+    is enabled, in every mode. Null means they take the current mode's own
+    color like every other widget.
+
+colors.statusbar.segments.text.fg:
+  type:
+    name: QssColor
+    none_ok: true
+  default: null
+  desc: >-
+    Foreground color of the `text:` widget segments when
+    `colors.statusbar.segments.text.bg` is set. Null means the mode's own
+    foreground.
+
 colors.tabs.bar.bg:
   default: '#555555'
   type: QssColor
