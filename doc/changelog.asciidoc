@@ -24,6 +24,25 @@ Removed
 
 - Support for Python 3.9 was removed and Python 3.10 is now required (#8731)
 
+Added
+~~~~~
+
+- `:tab-pick <index> [<index>...]` shows the named tabs in a transient pick
+  view (no tab's tags change); `:tag-view prev` or `:tag-view <tag>` leaves
+  it, and the zellij bar shows a `PICK n` ribbon while it is on screen. A
+  new `tiling` statusbar.widgets segment shows the viewed tags or `PICK n`.
+- `:tab-focus --monocle/-m` lays the resulting view out as a single tile.
+- Marking a tab with `:completion-item-mark` in the `:tab-select` completion
+  no longer hides the completion when the typed text left exactly one match:
+  the typed text is cleared instead, so the whole tab list is ready for the
+  next search with the mark kept.
+
+Changed
+~~~~~~~
+
+- Passthrough mode is now a detour from tile mode like insert: leaving it
+  with `<Shift+Escape>` returns to tile mode instead of normal mode.
+
 Fixed
 ~~~~~
 
